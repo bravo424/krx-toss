@@ -1,0 +1,23 @@
+base_url: https://openapi.tossinvest.com
+dry_run: true
+# Leave null to use the first BROKERAGE account from GET /api/v1/accounts
+account_seq: null
+timezone: Asia/Seoul
+http_timeout_seconds: 20
+token_refresh_skew_seconds: 60
+poll:
+  overlay_seconds: 60
+  holdings_seconds: 30
+  order_status_seconds: 15
+  balance_update_seconds: 3600
+telegram:
+  chat_id: ""
+  position_chat_id: ""
+  nasang_token_path: config/nasang_bot_token
+  position_token_path: config/position_bot_token
+paths:
+  cache_dir: data/cache
+  blotter_db: data/blotter.sqlite
+  kill_switch: data/kill_switch.json
+  logs_dir: logs
+  signals_path: data/cache/signals.json
