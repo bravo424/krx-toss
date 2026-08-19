@@ -162,6 +162,7 @@ def reconcile_holdings(broker: Broker, skip_symbols: set[str] | None = None) -> 
             reason="oco_or_external",
             pnl=pnl,
             entry_price=entry,
+            name=broker.symbol_name(symbol),
         )
         events.append(f"{symbol}:SELL:reconcile:{sold}")
         log.info("holdings reconcile %s sold=%s px=%s", symbol, sold, last)

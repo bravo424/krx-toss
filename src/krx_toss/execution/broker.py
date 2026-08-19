@@ -42,6 +42,7 @@ class Broker:
         self.alerts = alerts or TradingAlerts()
         self._symbol_locks: dict[str, threading.Lock] = {}
         self._map_lock = threading.Lock()
+        self._name_cache: dict[str, str] = {}
 
     def _lock_for(self, symbol: str) -> threading.Lock:
         with self._map_lock:
@@ -50,6 +51,23 @@ class Broker:
                 lock = threading.Lock()
                 self._symbol_locks[symbol] = lock
             return lock
+
+    def symbol_name(self, symbol: str) -> str:
+        cached = self._name_cache.get(symbol)
+        if cached is not None:
+            return cached
+        name = ""
+        try:
+            rows = self.client.get_stocks([symbol])
+            for row in rows or []:
+                if str(row.get("symbol") or "") == symbol or not name:
+                    name = str(row.get("name") or row.get("koreanName") or row.get("stockName") or "")
+                    if str(row.get("symbol") or "") == symbol and name:
+                        break
+        except Exception as exc:  # noqa: BLE001
+            log.warning("stock name failed %s: %s", symbol, exc)
+        self._name_cache[symbol] = name
+        return name
 
     def client_order_id(self) -> str:
         return uuid.uuid4().hex[:32]
@@ -96,6 +114,7 @@ class Broker:
                     order_id=f"dry-{body['clientOrderId']}",
                     stop_price=intent.stop_price,
                     take_profit_price=intent.take_profit_price,
+                    name=self.symbol_name(intent.symbol),
                 )
                 if intent.side == "BUY":
                     self.blotter.upsert_position(
@@ -115,6 +134,7 @@ class Broker:
                         quantity=intent.quantity,
                         price=intent.price,
                         dry_run=True,
+                        name=self.symbol_name(intent.symbol),
                     )
                 return {"orderId": f"dry-{body['clientOrderId']}", "clientOrderId": body["clientOrderId"], "dryRun": True}
             result = self.client.create_order(body)
@@ -139,6 +159,7 @@ class Broker:
                 order_id=order_id or body["clientOrderId"],
                 stop_price=intent.stop_price,
                 take_profit_price=intent.take_profit_price,
+                name=self.symbol_name(intent.symbol),
             )
             return result
 
@@ -319,6 +340,7 @@ class Broker:
                 reason=reason,
                 pnl=pnl,
                 entry_price=Decimal(pos["avg_price"]),
+                name=self.symbol_name(symbol),
             )
         return result
 
@@ -400,6 +422,7 @@ class Broker:
                 quantity=quantity,
                 price=price,
                 dry_run=False,
+                name=self.symbol_name(symbol),
             )
             return
         entry = Decimal(pos["avg_price"]) if pos else price
@@ -433,4 +456,5 @@ class Broker:
             reason="fill",
             pnl=pnl,
             entry_price=entry if pos else None,
+            name=self.symbol_name(symbol),
         )

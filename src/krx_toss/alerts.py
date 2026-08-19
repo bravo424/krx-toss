@@ -33,6 +33,13 @@ def _esc(value: Any) -> str:
     return html.escape(str(value), quote=False)
 
 
+def _symbol_label(symbol: str, name: str | None = None) -> str:
+    label = _esc(symbol)
+    if name:
+        label = f"{label} {_esc(name)}"
+    return label
+
+
 def _dry_suffix(dry_run: bool) -> str:
     return "  [DRY RUN]" if dry_run else ""
 
@@ -90,6 +97,7 @@ class TradingAlerts:
         order_id: str | None = None,
         stop_price: Decimal | None = None,
         take_profit_price: Decimal | None = None,
+        name: str | None = None,
     ) -> None:
         if self.trade is None:
             return
@@ -97,7 +105,7 @@ class TradingAlerts:
         lines = [
             f"🟢 <b>Order placed{_dry_suffix(dry_run)}</b>",
             f"Strategy: <b>{STRATEGY}</b>",
-            f"Symbol: <b>{_esc(symbol)}</b>  {label}",
+            f"Symbol: <b>{_symbol_label(symbol, name)}</b>  {label}",
             f"Price: {_krw(price)}  Qty: {quantity}",
             f"Notional: {_krw(price * quantity)}",
         ]
@@ -118,6 +126,7 @@ class TradingAlerts:
         reason: str | None = None,
         pnl: Decimal | None = None,
         entry_price: Decimal | None = None,
+        name: str | None = None,
     ) -> None:
         if self.trade is None:
             return
@@ -131,7 +140,7 @@ class TradingAlerts:
         lines = [
             header,
             f"Strategy: <b>{STRATEGY}</b>",
-            f"Symbol: <b>{_esc(symbol)}</b>  {label}",
+            f"Symbol: <b>{_symbol_label(symbol, name)}</b>  {label}",
         ]
         if side.upper() == "SELL" and entry_price is not None:
             lines.append(f"Entry: {_krw(entry_price)}   Exit: {_krw(price)}")
@@ -256,10 +265,7 @@ class TradingAlerts:
             total_upnl += upnl
             cost = entry * qty
             pct = (upnl / cost * 100) if cost else Decimal("0")
-            label = _esc(symbol)
-            name = names.get(symbol) or str(pos.get("name") or "")
-            if name:
-                label = f"{label} {_esc(name)}"
+            label = _symbol_label(symbol, names.get(symbol) or str(pos.get("name") or ""))
             lines.append(
                 f"{_pnl_emoji(upnl)} <b>{label}</b>  Long 🔺\n"
                 f"  Entry {_krw(entry)}  Mark {_krw(mark)}  Size {qty}\n"

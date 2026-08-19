@@ -46,6 +46,10 @@ class DummyClient:
     def get_prices(self, symbols):
         return [{"symbol": s, "lastPrice": "70000"} for s in symbols]
 
+    def get_stocks(self, symbols):
+        names = {"005930": "삼성전자", "403870": "HPSP"}
+        return [{"symbol": s, "name": names.get(s, "")} for s in symbols]
+
 
 def _broker(tmp_path: Path, *, dry_run: bool, client=None, alerts=None) -> Broker:
     blotter = Blotter(tmp_path / "b.sqlite")
@@ -104,7 +108,7 @@ def test_dry_run_buy_alerts_place_and_fill(tmp_path: Path):
     alerts = TradingAlerts(trade=trade, position=position)
     broker = _broker(tmp_path, dry_run=True, alerts=alerts)
     broker.submit_limit(_buy_intent())
-    assert any("Order placed" in m and "DRY RUN" in m and "005930" in m for m in trade.messages)
+    assert any("Order placed" in m and "DRY RUN" in m and "005930 삼성전자" in m for m in trade.messages)
     assert any("Filled" in m and "BUY" in m for m in trade.messages)
     assert position.messages == []
 
