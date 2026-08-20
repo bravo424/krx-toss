@@ -6,7 +6,7 @@ from decimal import Decimal
 from helpers import make_candles, make_credit, make_flow
 
 from krx_toss.strategy.signals import evaluate_symbol, index_blocks_entries, select_signals
-from krx_toss.strategy.universe import build_universe, merge_ranking_symbols, warning_blocked
+from krx_toss.strategy.universe import blocked_warning_set, build_universe, merge_ranking_symbols, warning_blocked
 
 
 PARAMS = {
@@ -122,3 +122,76 @@ def test_merge_keeps_unique_names_beyond_one_ranking_list():
     merged = merge_ranking_symbols(day, week, limit=200, per_list=100)
     assert len(merged) == 180
     assert merged[0][0] == "000000"
+
+
+def test_hard_excludes_apply_even_if_yaml_omits_them():
+    blocked = blocked_warning_set([])
+    assert "LIQUIDATION_TRADING" in blocked
+    assert warning_blocked([{"warningType": "STOCK_WARRANTS"}], blocked)
+
+
+def test_scan_skips_watchlist_fetch_when_kospi_risk_off(tmp_path):
+    from krx_toss.backtest.cache import MarketCache
+    from krx_toss.config import Settings
+    from krx_toss.jobs.close_scan import scan_signals
+
+    class DropClient:
+        def __init__(self) -> None:
+            self.rankings = 0
+
+        def get_indicator_candles(self, *_args, **_kwargs):
+            return {
+                "candles": [
+                    {
+                        "timestamp": "2026-01-01T00:00:00+09:00",
+                        "openPrice": "3000",
+                        "highPrice": "3000",
+                        "lowPrice": "2900",
+                        "closePrice": "3000",
+                        "volume": "1",
+                    },
+                    {
+                        "timestamp": "2026-01-02T00:00:00+09:00",
+                        "openPrice": "2700",
+                        "highPrice": "2700",
+                        "lowPrice": "2600",
+                        "closePrice": "2700",
+                        "volume": "1",
+                    },
+                ]
+            }
+
+        def get_rankings(self, **_kwargs):
+            self.rankings += 1
+            return {"rankings": []}
+
+    settings = Settings(
+        base_url="https://example.invalid",
+        dry_run=True,
+        account_seq=None,
+        timezone="Asia/Seoul",
+        http_timeout_seconds=5,
+        token_refresh_skew_seconds=60,
+        overlay_seconds=60,
+        holdings_seconds=30,
+        order_status_seconds=15,
+        balance_update_seconds=1800,
+        cache_dir=tmp_path,
+        blotter_db=tmp_path / "b.sqlite",
+        kill_switch=tmp_path / "kill.json",
+        logs_dir=tmp_path,
+        signals_path=tmp_path / "signals.json",
+        creds_path=tmp_path / "creds.csv",
+        nasang_token_path=tmp_path / "nasang",
+        position_token_path=tmp_path / "position",
+        telegram_chat_id=None,
+        telegram_position_chat_id=None,
+        strategy={"signal": {"kospi_skip_1d_return": "-0.02"}, "universe": {"watchlist_size": 10}},
+        root=tmp_path,
+    )
+    client = DropClient()
+    payload = scan_signals(client, settings, MarketCache(tmp_path))
+    assert payload["rejected"] == {"KOSPI": "kospi_risk_off"}
+    assert payload["accepted"] == []
+    assert client.rankings == 0
+

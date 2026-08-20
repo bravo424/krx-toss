@@ -25,16 +25,11 @@ def run_eod(client: TossClient, broker: Broker, settings: Settings) -> None:
         log.error("daily loss kill switch tripped: %s", realized)
         broker.alerts.kill_switch(f"daily_loss {realized}")
 
-    for pos in list(broker.blotter.positions()):
-        sessions = int(pos.get("sessions_held") or 0)
-        if sessions < time_stop:
-            continue
+    stops = [pos for pos in broker.blotter.positions() if int(pos.get("sessions_held") or 0) >= time_stop]
+    marks = broker.last_prices([str(pos["symbol"]) for pos in stops])
+    for pos in stops:
         symbol = pos["symbol"]
         market = pos.get("market") or "KOSPI"
-        try:
-            prices = client.get_prices([symbol])
-            last = to_decimal((prices[0] if prices else {}).get("lastPrice") or pos["avg_price"])
-        except Exception:  # noqa: BLE001
-            last = to_decimal(pos["avg_price"])
+        last = marks.get(symbol) or to_decimal(pos["avg_price"])
         broker.flatten(symbol, market, last, int(pos["quantity"]), "time_stop")
     log.info("eod complete positions=%s", len(broker.blotter.positions()))

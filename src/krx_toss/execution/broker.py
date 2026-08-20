@@ -13,6 +13,7 @@ from krx_toss.cost.model import CostModel
 from krx_toss.execution.blotter import Blotter
 from krx_toss.execution.kill_switch import KillSwitch
 from krx_toss.strategy.risk import OrderIntent, RiskLimits
+from krx_toss.strategy.universe import stock_display_name
 from krx_toss.toss.client import TossClient
 from krx_toss.toss.decimal_utils import round_to_tick, to_decimal
 from krx_toss.toss.errors import TossApiError
@@ -52,6 +53,20 @@ class Broker:
                 self._symbol_locks[symbol] = lock
             return lock
 
+    def last_prices(self, symbols: list[str]) -> dict[str, Decimal]:
+        if not symbols:
+            return {}
+        marks: dict[str, Decimal] = {}
+        try:
+            for row in self.client.get_prices(symbols):
+                symbol = str(row.get("symbol") or "")
+                px = row.get("lastPrice") or row.get("close")
+                if symbol and px is not None:
+                    marks[symbol] = to_decimal(px, default=Decimal("0"))
+        except Exception as exc:  # noqa: BLE001
+            log.warning("prices failed: %s", exc)
+        return marks
+
     def symbol_name(self, symbol: str) -> str:
         cached = self._name_cache.get(symbol)
         if cached is not None:
@@ -60,14 +75,19 @@ class Broker:
         try:
             rows = self.client.get_stocks([symbol])
             for row in rows or []:
-                if str(row.get("symbol") or "") == symbol or not name:
-                    name = str(row.get("name") or row.get("koreanName") or row.get("stockName") or "")
-                    if str(row.get("symbol") or "") == symbol and name:
-                        break
+                candidate = stock_display_name(row)
+                if str(row.get("symbol") or "") == symbol and candidate:
+                    name = candidate
+                    break
+                if not name:
+                    name = candidate
         except Exception as exc:  # noqa: BLE001
             log.warning("stock name failed %s: %s", symbol, exc)
         self._name_cache[symbol] = name
         return name
+
+    def remember_names(self, names: dict[str, str]) -> None:
+        self._name_cache.update({symbol: name for symbol, name in names.items() if name})
 
     def client_order_id(self) -> str:
         return uuid.uuid4().hex[:32]
@@ -175,7 +195,7 @@ class Broker:
                     continue
         return 0
 
-    def live_sellable_qty(self, symbol: str) -> int:
+    def live_sellable_qty(self, symbol: str, holdings_by_symbol: dict[str, dict[str, Any]] | None = None) -> int:
         if self.dry_run:
             pos = self.blotter.position(symbol)
             return int(pos["quantity"]) if pos else 0
@@ -186,16 +206,23 @@ class Broker:
             log.warning("sellable-quantity failed %s: %s", symbol, exc)
         if qty > 0:
             return qty
-        try:
-            holdings = self.client.get_holdings()
-            for item in holdings.get("items") or []:
-                if str(item.get("symbol") or "") == symbol:
-                    return max(
-                        self._payload_qty(item),
-                        int(to_decimal(item.get("holdingQuantity") or 0, default=Decimal("0"))),
-                    )
-        except Exception as exc:  # noqa: BLE001
-            log.warning("holdings lookup for OCO failed %s: %s", symbol, exc)
+        item = None
+        if holdings_by_symbol is not None:
+            item = holdings_by_symbol.get(symbol)
+        else:
+            try:
+                holdings = self.client.get_holdings()
+                for row in holdings.get("items") or []:
+                    if str(row.get("symbol") or "") == symbol:
+                        item = row
+                        break
+            except Exception as exc:  # noqa: BLE001
+                log.warning("holdings lookup for OCO failed %s: %s", symbol, exc)
+        if item:
+            return max(
+                self._payload_qty(item),
+                int(to_decimal(item.get("holdingQuantity") or 0, default=Decimal("0"))),
+            )
         return 0
 
     def _remember_oco(self, symbol: str, market: str, oco_id: str, stop: Decimal, take_profit: Decimal) -> None:
@@ -213,17 +240,23 @@ class Broker:
             take_profit,
         )
 
-    def attach_oco(self, intent: OrderIntent, quantity: int | None = None) -> dict[str, Any] | None:
+    def attach_oco(
+        self,
+        intent: OrderIntent,
+        quantity: int | None = None,
+        holdings_by_symbol: dict[str, dict[str, Any]] | None = None,
+    ) -> dict[str, Any] | None:
         qty = quantity or intent.quantity
         if qty <= 0:
             return None
         if not self.dry_run:
-            sellable = self.live_sellable_qty(intent.symbol)
+            sellable = self.live_sellable_qty(intent.symbol, holdings_by_symbol)
             if sellable <= 0:
                 log.info("skip OCO %s: no sellable shares yet (buy unfilled)", intent.symbol)
                 return None
             qty = min(qty, sellable)
-        expire = (datetime.now(KST).date() + timedelta(days=7)).isoformat()
+        expire_days = max(1, int(getattr(self.limits, "oco_expire_days", 7)))
+        expire = (datetime.now(KST).date() + timedelta(days=expire_days)).isoformat()
         body = {
             "symbol": intent.symbol,
             "type": "OCO",
@@ -258,7 +291,7 @@ class Broker:
         log.info("OCO attached %s qty=%s tp=%s sl=%s", intent.symbol, qty, intent.take_profit_price, intent.stop_price)
         return result
 
-    def ensure_oco(self, symbol: str) -> dict[str, Any] | None:
+    def ensure_oco(self, symbol: str, holdings_by_symbol: dict[str, dict[str, Any]] | None = None) -> dict[str, Any] | None:
         pos = self.blotter.position(symbol)
         if not pos or int(pos["quantity"]) <= 0:
             return None
@@ -288,7 +321,7 @@ class Broker:
             stop_price=stop,
             take_profit_price=take_profit,
         )
-        return self.attach_oco(intent, quantity=qty)
+        return self.attach_oco(intent, quantity=qty, holdings_by_symbol=holdings_by_symbol)
 
     def flatten(self, symbol: str, market: str, price: Decimal, quantity: int, reason: str) -> dict[str, Any]:
         px = round_to_tick(price, market, side="SELL")

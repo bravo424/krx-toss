@@ -2,13 +2,10 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
 import yaml
-
-from krx_toss.toss.decimal_utils import to_decimal
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -76,14 +73,6 @@ class Settings:
         if not isinstance(section, dict):
             raise TypeError(f"strategy.{name} must be a mapping")
         return section
-
-    def decimal(self, *keys: str, default: str | int | float | Decimal = 0) -> Decimal:
-        cur: Any = self.strategy
-        for key in keys:
-            if not isinstance(cur, dict) or key not in cur:
-                return to_decimal(default)
-            cur = cur[key]
-        return to_decimal(cur)
 
 
 def load_settings(root: Path | None = None) -> Settings:

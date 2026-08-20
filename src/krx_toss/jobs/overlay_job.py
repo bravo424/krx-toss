@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import logging
-from decimal import Decimal
 
 from krx_toss.config import Settings
 from krx_toss.execution.broker import Broker
-from krx_toss.execution.overlay import last_from_candles, overlay_actions
+from krx_toss.execution.overlay import overlay_actions
+from krx_toss.strategy.universe import blocked_warning_set
 from krx_toss.toss.client import TossClient
 from krx_toss.toss.decimal_utils import to_decimal
 
@@ -17,19 +17,20 @@ def run_overlay(client: TossClient, broker: Broker, settings: Settings) -> list[
     uni = settings.strategy_section("universe")
     near = to_decimal(exit_cfg.get("flatten_near_limit_pct", "0.02"))
     flatten_vi = bool(exit_cfg.get("overlay_vi_flatten", True))
-    blocked = {str(x).upper() for x in (uni.get("blocked_warning_types") or [])}
+    blocked = blocked_warning_set(uni.get("blocked_warning_types"))
+    positions = broker.blotter.positions()
+    marks = broker.last_prices([str(pos["symbol"]) for pos in positions])
     actions: list[str] = []
-    for pos in broker.blotter.positions():
+    for pos in positions:
         symbol = pos["symbol"]
         market = pos.get("market") or "KOSPI"
         try:
-            minute = client.get_candles(symbol, interval="1m", count=5)
             warnings = client.get_warnings(symbol)
             limits = client.get_price_limits(symbol)
         except Exception as exc:  # noqa: BLE001
             log.warning("overlay fetch failed %s: %s", symbol, exc)
             continue
-        last = last_from_candles(minute.get("candles") or []) or to_decimal(pos["avg_price"])
+        last = marks.get(symbol) or to_decimal(pos["avg_price"])
         reason = overlay_actions(
             broker=broker,
             symbol=symbol,

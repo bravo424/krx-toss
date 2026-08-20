@@ -5,7 +5,6 @@ import random
 import time
 from collections.abc import Mapping
 from typing import Any
-from urllib.parse import urlencode
 
 import httpx
 
@@ -162,16 +161,8 @@ class TossClient:
             )
         return out
 
-    def get_orderbook(self, symbol: str) -> dict[str, Any]:
-        return _as_dict(self.request("GET", "/api/v1/orderbook", group="MARKET_DATA", params={"symbol": symbol}))
-
     def get_price_limits(self, symbol: str) -> dict[str, Any]:
         return _as_dict(self.request("GET", "/api/v1/price-limits", group="MARKET_DATA", params={"symbol": symbol}))
-
-    def get_trades(self, symbol: str, count: int = 50) -> list[dict[str, Any]]:
-        return _as_list(
-            self.request("GET", "/api/v1/trades", group="MARKET_DATA", params={"symbol": symbol, "count": count})
-        )
 
     def get_candles(
         self,
@@ -211,14 +202,6 @@ class TossClient:
                 _as_list(self.request("GET", "/api/v1/stocks", group="STOCK", params={"symbols": ",".join(chunk)}))
             )
         return out
-
-    def list_stocks(self, market: str, status: str = "ACTIVE", security_type: str | None = None, common_share: bool | None = None) -> list[dict[str, Any]]:
-        params: dict[str, Any] = {"market": market, "status": status}
-        if security_type:
-            params["securityType"] = security_type
-        if common_share is not None:
-            params["commonShare"] = str(common_share).lower()
-        return _as_list(self.request("GET", "/api/v1/stocks/all", group="STOCK_ALL", params=params))
 
     def get_warnings(self, symbol: str) -> list[dict[str, Any]]:
         return _as_list(self.request("GET", f"/api/v1/stocks/{symbol}/warnings", group="STOCK"))
@@ -481,7 +464,3 @@ def _as_dict(value: Any) -> dict[str, Any]:
     if isinstance(value, dict):
         return value
     raise TossApiError(f"expected object response, got {type(value).__name__}")
-
-
-def encode_query(params: Mapping[str, Any]) -> str:
-    return urlencode({k: v for k, v in params.items() if v is not None})

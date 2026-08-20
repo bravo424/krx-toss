@@ -59,14 +59,28 @@ def _order_items(payload: dict[str, Any] | list[dict[str, Any]]) -> tuple[list[d
     return [], None
 
 
+_SESSION_DAY_CACHE: dict[str, bool] = {}
+
+
 def _is_session_day(client: TossClient, day: date) -> bool:
+    key = day.isoformat()
+    cached = _SESSION_DAY_CACHE.get(key)
+    if cached is not None:
+        return cached
     if day.weekday() >= 5:
+        _SESSION_DAY_CACHE[key] = False
         return False
     try:
         cal = client.get_kr_calendar(day.isoformat())
     except Exception:  # noqa: BLE001
-        return day.weekday() < 5
-    return calendar_is_open(cal, datetime(day.year, day.month, day.day, tzinfo=KST))
+        result = day.weekday() < 5
+        _SESSION_DAY_CACHE[key] = result
+        return result
+    result = calendar_is_open(cal, datetime(day.year, day.month, day.day, tzinfo=KST))
+    if len(_SESSION_DAY_CACHE) >= 64:
+        _SESSION_DAY_CACHE.pop(next(iter(_SESSION_DAY_CACHE)))
+    _SESSION_DAY_CACHE[key] = result
+    return result
 
 
 def next_session_days(client: TossClient, start: date, count: int = 2) -> list[date]:

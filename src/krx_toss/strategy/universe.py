@@ -12,8 +12,6 @@ HARD_EXCLUDE_WARNINGS = {
     "STOCK_WARRANTS",
 }
 
-ALLOWED_MARKETS = {"KOSPI", "KOSDAQ"}
-
 
 @dataclass
 class UniverseName:
@@ -64,6 +62,16 @@ def merge_ranking_symbols(
     return ranked[:limit] if limit > 0 else ranked
 
 
+def stock_display_name(row: dict[str, Any] | None) -> str:
+    if not row:
+        return ""
+    return str(row.get("name") or row.get("koreanName") or row.get("stockName") or "")
+
+
+def blocked_warning_set(configured: Iterable[str] | None) -> set[str]:
+    return HARD_EXCLUDE_WARNINGS | {str(x).upper() for x in (configured or [])}
+
+
 def is_tradable_stock(info: dict[str, Any], *, markets: Iterable[str], common_only: bool) -> bool:
     market = str(info.get("market") or "").upper()
     if market not in {m.upper() for m in markets}:
@@ -106,7 +114,7 @@ def build_universe(
     names: list[UniverseName] = []
     for symbol, score in rankings:
         info = stock_info.get(symbol) or {}
-        if info and not is_tradable_stock(info, markets=markets, common_only=common_only):
+        if not is_tradable_stock(info, markets=markets, common_only=common_only):
             continue
         if warning_blocked(warnings.get(symbol) or [], blocked_warnings):
             continue
@@ -114,7 +122,7 @@ def build_universe(
         names.append(
             UniverseName(
                 symbol=symbol,
-                name=str(info.get("name") or ""),
+                name=stock_display_name(info),
                 market=str(info.get("market") or "KOSPI"),
                 shares_outstanding=Decimal(str(shares)) if shares not in (None, "") else None,
                 ranking_score=score,

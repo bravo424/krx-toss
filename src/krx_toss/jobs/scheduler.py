@@ -34,6 +34,8 @@ def run_scheduler(client: TossClient, broker: Broker, settings: Settings, *, onc
     last_order_sync = 0.0
     last_hourly_balance = 0.0
     last_overlay = 0.0
+    cal: dict = {}
+    cal_date = None
     try:
         broker.alerts.started(dry_run=broker.dry_run)
     except Exception as exc:  # noqa: BLE001
@@ -41,12 +43,18 @@ def run_scheduler(client: TossClient, broker: Broker, settings: Settings, *, onc
     while True:
         try:
             now = datetime.now(KST)
-            cal: dict = {}
+            if cal_date != now.date():
+                try:
+                    cal = client.get_kr_calendar()
+                    cal_date = now.date()
+                except Exception as exc:  # noqa: BLE001
+                    log.warning("calendar fetch failed: %s", exc)
+                    cal = {}
+                    cal_date = now.date()
             try:
-                cal = client.get_kr_calendar()
-                open_today = calendar_is_open(cal, now)
+                open_today = calendar_is_open(cal, now) if cal else now.weekday() < 5
             except Exception as exc:  # noqa: BLE001
-                log.warning("calendar fetch failed: %s", exc)
+                log.warning("calendar parse failed: %s", exc)
                 open_today = now.weekday() < 5
             clock = now.time().replace(tzinfo=None)
             try:

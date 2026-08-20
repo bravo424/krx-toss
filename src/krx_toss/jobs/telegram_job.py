@@ -8,6 +8,7 @@ from krx_toss.config import Settings
 from krx_toss.execution.broker import Broker
 from krx_toss.jobs.settlement import settlement_snapshot
 from krx_toss.strategy.risk import parse_hhmm
+from krx_toss.strategy.universe import stock_display_name
 from krx_toss.toss.decimal_utils import to_decimal
 
 log = logging.getLogger(__name__)
@@ -44,34 +45,23 @@ def next_balance_kind(
 def fetch_marks(broker: Broker, symbols: list[str]) -> dict[str, Decimal]:
     if not symbols or broker.dry_run:
         return {}
-    try:
-        rows = broker.client.get_prices(symbols)
-    except Exception as exc:  # noqa: BLE001
-        log.warning("mark prices failed: %s", exc)
-        return {}
-    marks: dict[str, Decimal] = {}
-    for row in rows or []:
-        symbol = str(row.get("symbol") or "")
-        px = row.get("lastPrice") or row.get("close")
-        if symbol and px is not None:
-            marks[symbol] = to_decimal(px, default=Decimal("0"))
-    return marks
+    return broker.last_prices(symbols)
 
 
 def fetch_names(broker: Broker, symbols: list[str]) -> dict[str, str]:
     if not symbols:
         return {}
+    names: dict[str, str] = {}
     try:
-        rows = broker.client.get_stocks(symbols)
+        for row in broker.client.get_stocks(symbols) or []:
+            symbol = str(row.get("symbol") or "")
+            name = stock_display_name(row)
+            if symbol and name:
+                names[symbol] = name
     except Exception as exc:  # noqa: BLE001
         log.warning("stock names failed: %s", exc)
-        return {}
-    names: dict[str, str] = {}
-    for row in rows or []:
-        symbol = str(row.get("symbol") or "")
-        name = str(row.get("name") or row.get("koreanName") or row.get("stockName") or "")
-        if symbol and name:
-            names[symbol] = name
+    if names:
+        broker.remember_names(names)
     return names
 
 
@@ -99,7 +89,6 @@ def push_balance_update(
     *,
     kind: str = "manual",
 ) -> None:
-    del settings
     positions = broker.blotter.positions()
     cash = broker.buying_power_krw()
     symbols = [str(p["symbol"]) for p in positions]

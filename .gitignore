@@ -32,33 +32,3 @@ logs/
 # OS
 Thumbs.db
 .DS_Store
-
-
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-.venv/
-venv/
-.env
-*.egg-info/
-dist/
-build/
-
-# Data and logs
-data/cache/
-data/*.sqlite
-data/*.db
-data/kill_switch.json
-logs/
-*.parquet
-
-# IDE
-.idea/
-.vscode/
-.cursor/
-*.code-workspace
-
-# OS
-Thumbs.db
-.DS_Store

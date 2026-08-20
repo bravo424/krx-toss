@@ -55,18 +55,15 @@ def place_entries(client: TossClient, broker: Broker, settings: Settings, now: d
     offset = int(entry_cfg.get("limit_offset_ticks", 0))
     take_profit = to_decimal(exit_cfg.get("take_profit", "0.06"))
     universe_map = {row["symbol"]: row for row in payload.get("universe") or []}
+    wanted = [s.symbol for s in signals if s.symbol not in blocked][: max(0, limits.max_positions - open_count)]
+    marks = broker.last_prices(wanted)
 
     for signal in signals:
         if open_count >= limits.max_positions:
             break
         if signal.symbol in blocked:
             continue
-        try:
-            prices = client.get_prices([signal.symbol])
-            last = to_decimal((prices[0] if prices else {}).get("lastPrice") or signal.close)
-        except Exception as exc:  # noqa: BLE001
-            log.warning("price failed %s: %s", signal.symbol, exc)
-            last = signal.close
+        last = marks.get(signal.symbol) or signal.close
         px = apply_tick_offset(last, offset, signal.market, side="BUY")
         shares = None
         info = universe_map.get(signal.symbol) or {}

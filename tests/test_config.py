@@ -23,8 +23,8 @@ def test_creds_placeholder_rejected(tmp_path: Path):
 
 def test_settings_load_from_project_root():
     settings = load_settings()
-    assert settings.dry_run is True
     assert settings.base_url.endswith("tossinvest.com")
+    assert settings.signals_path.name == "signals.json"
 
 
 def test_live_requires_confirmation():

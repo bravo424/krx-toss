@@ -25,6 +25,7 @@ class RiskLimits:
     high_value_threshold: Decimal
     stop_loss: Decimal
     take_profit: Decimal
+    oco_expire_days: int
 
     @classmethod
     def from_strategy(cls, strategy: dict) -> RiskLimits:
@@ -42,6 +43,7 @@ class RiskLimits:
             high_value_threshold=to_decimal(risk.get("high_value_threshold", HIGH_VALUE)),
             stop_loss=to_decimal(exit_cfg.get("stop_loss", "0.04")),
             take_profit=to_decimal(exit_cfg.get("take_profit", "0.06")),
+            oco_expire_days=max(1, int(exit_cfg.get("oco_expire_days", 7))),
         )
 
 
@@ -114,11 +116,6 @@ def now_kst(now: datetime | None = None) -> datetime:
         # Naive values are this machine's wall clock (often UTC+8), not KST.
         now = now.astimezone()
     return now.astimezone(KST)
-
-
-def in_window(now: datetime, start: str, end: str) -> bool:
-    clock = now_kst(now).time()
-    return parse_hhmm(start) <= clock < parse_hhmm(end)
 
 
 def entries_allowed(now: datetime, no_new_until: str = "09:15") -> bool:

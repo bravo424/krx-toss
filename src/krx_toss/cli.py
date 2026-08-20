@@ -193,7 +193,7 @@ def cmd_backtest(settings: Settings, nav: Decimal) -> int:
 def cmd_fetch_cache(settings: Settings) -> int:
     client, broker = _session(settings, dry_run=True)
     cache = MarketCache(settings.cache_dir)
-    scan_signals(client, settings, cache, alerts=broker.alerts, source="fetch-cache")
+    scan_signals(client, settings, cache, alerts=broker.alerts, source="fetch-cache", persist=True)
     try:
         kospi = client.get_indicator_candles("KOSPI", interval="1d", count=200)
         cache.save_records("candles", "KOSPI", kospi.get("candles") or [])

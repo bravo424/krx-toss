@@ -123,7 +123,7 @@ def reconcile_holdings(broker: Broker, skip_symbols: set[str] | None = None) -> 
         if not symbol:
             continue
         held[symbol] = _holding_qty(item)
-    events: list[str] = []
+    closing: list[tuple[dict[str, Any], int]] = []
     for pos in list(broker.blotter.positions()):
         symbol = pos["symbol"]
         if symbol in skip:
@@ -132,14 +132,15 @@ def reconcile_holdings(broker: Broker, skip_symbols: set[str] | None = None) -> 
         live_qty = held.get(symbol, 0)
         if live_qty >= blotter_qty:
             continue
-        sold = blotter_qty - live_qty
+        closing.append((pos, live_qty))
+    marks = broker.last_prices([pos["symbol"] for pos, _live in closing])
+    events: list[str] = []
+    for pos, live_qty in closing:
+        symbol = pos["symbol"]
+        sold = int(pos["quantity"]) - live_qty
         market = pos.get("market") or "KOSPI"
         entry = Decimal(pos["avg_price"])
-        try:
-            prices = broker.client.get_prices([symbol])
-            last = to_decimal((prices[0] if prices else {}).get("lastPrice") or entry)
-        except Exception:  # noqa: BLE001
-            last = entry
+        last = marks.get(symbol) or entry
         pnl = broker.cost.net_pnl(entry * sold, last * sold, market)
         broker.blotter.add_realized(date.today(), pnl)
         broker.blotter.add_fill(symbol, "SELL", sold, last)
@@ -171,13 +172,21 @@ def reconcile_holdings(broker: Broker, skip_symbols: set[str] | None = None) -> 
 
 def attach_missing_ocos(broker: Broker) -> list[str]:
     """Place TP/SL OCO only for names we actually hold."""
+    missing = [pos for pos in broker.blotter.positions() if not pos.get("oco_id")]
+    if not missing:
+        return []
+    holdings_by_symbol: dict[str, dict[str, Any]] | None = None
+    if not broker.dry_run:
+        try:
+            items = broker.client.get_holdings().get("items") or []
+            holdings_by_symbol = {str(item.get("symbol") or ""): item for item in items if item.get("symbol")}
+        except Exception as exc:  # noqa: BLE001
+            log.warning("holdings prefetch for OCO failed: %s", exc)
     events: list[str] = []
-    for pos in broker.blotter.positions():
-        if pos.get("oco_id"):
-            continue
+    for pos in missing:
         symbol = str(pos["symbol"])
         try:
-            result = broker.ensure_oco(symbol)
+            result = broker.ensure_oco(symbol, holdings_by_symbol=holdings_by_symbol)
         except Exception as exc:  # noqa: BLE001
             log.warning("OCO attach failed %s: %s", symbol, exc)
             continue

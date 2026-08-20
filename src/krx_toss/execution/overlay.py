@@ -1,15 +1,11 @@
 from __future__ import annotations
 
-import logging
 from decimal import Decimal
 from typing import Any
 
 from krx_toss.execution.broker import Broker
-from krx_toss.strategy.features import candle_price
 from krx_toss.strategy.universe import vi_active
 from krx_toss.toss.decimal_utils import maybe_decimal
-
-log = logging.getLogger(__name__)
 
 
 def should_flatten_for_limit(last: Decimal, upper: Decimal | None, near_pct: Decimal) -> bool:
@@ -48,18 +44,3 @@ def overlay_actions(
         broker.flatten(symbol, market, last_price, qty, "near_upper_limit")
         return "near_upper_limit"
     return None
-
-
-def last_from_candles(candles: list[dict[str, Any]]) -> Decimal | None:
-    if not candles:
-        return None
-    row = candles[0] if "close" in candles[0] else candles[-1]
-    # Toss returns newest first typically; use the max timestamp.
-    best = max(candles, key=lambda c: str(c.get("timestamp") or ""))
-    try:
-        return candle_price(best, "close", "closePrice", "c")
-    except (ValueError, TypeError, KeyError):
-        try:
-            return candle_price(row, "close", "closePrice", "c")
-        except Exception:
-            return None

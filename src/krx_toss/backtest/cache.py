@@ -48,13 +48,17 @@ class MarketCache:
             return None
         return json.loads(path.read_text(encoding="utf-8"))
 
-    def fetch_symbol(self, client: TossClient, symbol: str, *, bars: int = 260) -> dict[str, list]:
+    def fetch_symbol(self, client: TossClient, symbol: str, *, bars: int = 260, persist: bool = True) -> dict[str, list]:
         candle_rows: list[dict[str, Any]] = []
         flow_rows: list[dict[str, Any]] = []
         credit_rows: list[dict[str, Any]] = []
         try:
-            candles = client.get_all_candles(symbol, interval="1d", max_bars=bars)
-            candle_rows = candles if isinstance(candles, list) else []
+            if bars <= 200:
+                page = client.get_candles(symbol, interval="1d", count=bars)
+                candle_rows = list(page.get("candles") or [])
+            else:
+                candles = client.get_all_candles(symbol, interval="1d", max_bars=bars)
+                candle_rows = candles if isinstance(candles, list) else []
         except Exception as exc:  # noqa: BLE001
             log.warning("candles failed %s: %s", symbol, exc)
         try:
@@ -67,9 +71,10 @@ class MarketCache:
             credit_rows = list(credit.get("records") or credit.get("items") or credit.get("creditTrades") or [])
         except Exception as exc:  # noqa: BLE001
             log.warning("credit failed %s: %s", symbol, exc)
-        self.save_records("candles", symbol, candle_rows)
-        self.save_records("flow", symbol, flow_rows)
-        self.save_records("credit", symbol, credit_rows)
+        if persist:
+            self.save_records("candles", symbol, candle_rows)
+            self.save_records("flow", symbol, flow_rows)
+            self.save_records("credit", symbol, credit_rows)
         return {"candles": candle_rows, "flow": flow_rows, "credit": credit_rows}
 
     def candles(self, symbol: str) -> list[Candle]:
