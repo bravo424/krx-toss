@@ -15,9 +15,11 @@ from krx_toss.strategy.universe import (
     build_universe,
     is_tradable_stock,
     merge_ranking_symbols,
+    normalize_ranking_duration,
 )
 from krx_toss.toss.client import TossClient
 from krx_toss.toss.decimal_utils import to_decimal
+from krx_toss.toss.errors import TossApiError
 
 log = logging.getLogger(__name__)
 
@@ -57,15 +59,22 @@ def fetch_universe(client: TossClient, settings: Settings) -> list[UniverseName]
     payloads = []
     for ranking_type in _ranking_types(uni):
         for duration in uni.get("ranking_durations") or ["1d"]:
-            payloads.append(
-                client.get_rankings(
-                    ranking_type=ranking_type,
-                    market_country="KR",
-                    duration=str(duration),
-                    exclude_investment_caution=bool(uni.get("exclude_investment_caution", True)),
-                    count=per_list,
+            duration = normalize_ranking_duration(str(duration))
+            try:
+                payloads.append(
+                    client.get_rankings(
+                        ranking_type=ranking_type,
+                        market_country="KR",
+                        duration=duration,
+                        exclude_investment_caution=bool(uni.get("exclude_investment_caution", True)),
+                        count=per_list,
+                    )
                 )
-            )
+            except TossApiError as exc:
+                log.warning("ranking %s %s failed: %s", ranking_type, duration, exc)
+    if not payloads:
+        log.warning("no ranking payloads; watchlist empty")
+        return []
     # Toss caps each ranking at 100. Keep the unique merge — do not clip back to 100.
     ranked = merge_ranking_symbols(*payloads, limit=max(watchlist_size * 2, per_list), per_list=per_list)
     symbols = [s for s, _ in ranked]

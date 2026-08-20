@@ -80,7 +80,7 @@ There is no hand-maintained pool. These knobs size the **ranked watchlist**.
 | --- | --- | --- |
 | `ranking_type` | `MARKET_TRADING_AMOUNT` | Fallback if `ranking_types` is omitted. |
 | `ranking_types` | amount + volume | Merge several ranking boards (Toss still caps each at 100). |
-| `ranking_durations` | `[1d, 1w, 1m]` | Merge 1-day, 1-week, and 1-month lists. |
+| `ranking_durations` | `[1d, 1w, 1mo]` | Merge 1-day, 1-week, and 1-month lists (Toss uses `1mo`, not `1m`). |
 | `ranking_count` | `100` | Per-request cap (Toss max is 100; unique merge can be larger). |
 | `watchlist_size` | `180` | Max names that get candles/flow/signal checks. |
 | `markets` | `[KOSPI, KOSDAQ]` | Drop other venues. |

@@ -12,6 +12,14 @@ HARD_EXCLUDE_WARNINGS = {
     "STOCK_WARRANTS",
 }
 
+# Toss GET /rankings duration values. `1m` is a common typo for month.
+_RANKING_DURATION_ALIASES = {"1m": "1mo", "3m": "3mo", "6m": "6mo"}
+
+
+def normalize_ranking_duration(value: str) -> str:
+    text = str(value).strip()
+    return _RANKING_DURATION_ALIASES.get(text, text)
+
 
 @dataclass
 class UniverseName:

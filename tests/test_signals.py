@@ -6,7 +6,13 @@ from decimal import Decimal
 from helpers import make_candles, make_credit, make_flow
 
 from krx_toss.strategy.signals import evaluate_symbol, index_blocks_entries, select_signals
-from krx_toss.strategy.universe import blocked_warning_set, build_universe, merge_ranking_symbols, warning_blocked
+from krx_toss.strategy.universe import (
+    blocked_warning_set,
+    build_universe,
+    merge_ranking_symbols,
+    normalize_ranking_duration,
+    warning_blocked,
+)
 
 
 PARAMS = {
@@ -122,6 +128,12 @@ def test_merge_keeps_unique_names_beyond_one_ranking_list():
     merged = merge_ranking_symbols(day, week, limit=200, per_list=100)
     assert len(merged) == 180
     assert merged[0][0] == "000000"
+
+
+def test_ranking_duration_aliases_month():
+    assert normalize_ranking_duration("1m") == "1mo"
+    assert normalize_ranking_duration("1mo") == "1mo"
+    assert normalize_ranking_duration("1w") == "1w"
 
 
 def test_hard_excludes_apply_even_if_yaml_omits_them():
