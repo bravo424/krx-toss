@@ -1,8 +1,9 @@
 universe:
   ranking_type: MARKET_TRADING_AMOUNT
-  ranking_durations: [1d, 1w]
+  ranking_types: [MARKET_TRADING_AMOUNT, MARKET_TRADING_VOLUME]
+  ranking_durations: [1d, 1w, 1m]
   ranking_count: 100
-  watchlist_size: 60
+  watchlist_size: 180
   markets: [KOSPI, KOSDAQ]
   security_type: STOCK
   common_share_only: true

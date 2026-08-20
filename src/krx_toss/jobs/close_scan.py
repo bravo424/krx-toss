@@ -16,26 +16,37 @@ from krx_toss.toss.decimal_utils import to_decimal
 log = logging.getLogger(__name__)
 
 
+def _ranking_types(uni: dict[str, Any]) -> list[str]:
+    raw = uni.get("ranking_types")
+    if isinstance(raw, list) and raw:
+        return [str(item) for item in raw]
+    return [str(uni.get("ranking_type", "MARKET_TRADING_AMOUNT"))]
+
+
 def fetch_universe(client: TossClient, settings: Settings) -> list[UniverseName]:
     uni = settings.strategy_section("universe")
+    per_list = min(int(uni.get("ranking_count", 100)), 100)
+    watchlist_size = int(uni.get("watchlist_size", 60))
     payloads = []
-    for duration in uni.get("ranking_durations") or ["1d"]:
-        payloads.append(
-            client.get_rankings(
-                ranking_type=str(uni.get("ranking_type", "MARKET_TRADING_AMOUNT")),
-                market_country="KR",
-                duration=str(duration),
-                exclude_investment_caution=bool(uni.get("exclude_investment_caution", True)),
-                count=int(uni.get("ranking_count", 100)),
+    for ranking_type in _ranking_types(uni):
+        for duration in uni.get("ranking_durations") or ["1d"]:
+            payloads.append(
+                client.get_rankings(
+                    ranking_type=ranking_type,
+                    market_country="KR",
+                    duration=str(duration),
+                    exclude_investment_caution=bool(uni.get("exclude_investment_caution", True)),
+                    count=per_list,
+                )
             )
-        )
-    ranked = merge_ranking_symbols(*payloads, limit=int(uni.get("ranking_count", 100)))
+    # Toss caps each ranking at 100. Keep the unique merge — do not clip back to 100.
+    ranked = merge_ranking_symbols(*payloads, limit=max(watchlist_size * 2, per_list), per_list=per_list)
     symbols = [s for s, _ in ranked]
     info_rows = client.get_stocks(symbols) if symbols else []
     info = {str(row.get("symbol")): row for row in info_rows}
     warnings: dict[str, list[dict[str, Any]]] = {}
-    # Warnings are STOCK group at 5 TPS; only fetch enough to fill the watchlist.
-    warning_limit = min(len(ranked), int(uni.get("watchlist_size", 60)) + 20)
+    # Warnings are STOCK group at 5 TPS; scan a buffer so filters can still fill the watchlist.
+    warning_limit = min(len(ranked), max(watchlist_size + 40, int(watchlist_size * 1.25)))
     for symbol, _score in ranked[:warning_limit]:
         try:
             warnings[symbol] = client.get_warnings(symbol)
@@ -49,8 +60,9 @@ def fetch_universe(client: TossClient, settings: Settings) -> list[UniverseName]
         markets=uni.get("markets") or ["KOSPI", "KOSDAQ"],
         common_only=bool(uni.get("common_share_only", True)),
         blocked_warnings=uni.get("blocked_warning_types") or [],
-        watchlist_size=int(uni.get("watchlist_size", 60)),
+        watchlist_size=watchlist_size,
     )
+    log.info("universe ranked=%s watchlist=%s target=%s", len(ranked), len(universe.names), watchlist_size)
     return universe.names
 
 

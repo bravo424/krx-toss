@@ -10,8 +10,8 @@ Long-only KOSPI/KOSDAQ swing trades on the Toss Open API. It does **not** scan e
 
 Each after-close scan:
 
-1. Pulls turnover rankings (`MARKET_TRADING_AMOUNT`, 1-day and 1-week, top 100 each).
-2. Merges them and keeps a watchlist of about 60 liquid common shares.
+1. Pulls turnover rankings (amount + volume, 1-day / 1-week / 1-month, top 100 each).
+2. Merges unique names and keeps a watchlist of about 180 liquid common shares.
 3. Drops 정리매매, 투자경고, 단기과열, 투자위험, warrants, and non-ACTIVE names.
 4. Accepts names with foreign **and** institution net buying, price above the 20-day MA, and no 3-day extension above ~13%.
 5. Skips **all** new entries if KOSPI fell more than ~2% the prior day.
@@ -78,10 +78,11 @@ There is no hand-maintained pool. These knobs size the **ranked watchlist**.
 
 | Key | Default | Effect |
 | --- | --- | --- |
-| `ranking_type` | `MARKET_TRADING_AMOUNT` | Toss ranking used to seed candidates. |
-| `ranking_durations` | `[1d, 1w]` | Merge 1-day and 1-week turnover lists. |
-| `ranking_count` | `100` | Max names pulled from rankings before filters. |
-| `watchlist_size` | `60` | Max names that get candles/flow/signal checks. |
+| `ranking_type` | `MARKET_TRADING_AMOUNT` | Fallback if `ranking_types` is omitted. |
+| `ranking_types` | amount + volume | Merge several ranking boards (Toss still caps each at 100). |
+| `ranking_durations` | `[1d, 1w, 1m]` | Merge 1-day, 1-week, and 1-month lists. |
+| `ranking_count` | `100` | Per-request cap (Toss max is 100; unique merge can be larger). |
+| `watchlist_size` | `180` | Max names that get candles/flow/signal checks. |
 | `markets` | `[KOSPI, KOSDAQ]` | Drop other venues. |
 | `common_share_only` | `true` | Drop preferred shares when the API flags them. |
 | `exclude_investment_caution` | `true` | Ask Toss rankings to exclude 투자주의. |

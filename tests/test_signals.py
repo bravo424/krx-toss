@@ -6,7 +6,7 @@ from decimal import Decimal
 from helpers import make_candles, make_credit, make_flow
 
 from krx_toss.strategy.signals import evaluate_symbol, index_blocks_entries, select_signals
-from krx_toss.strategy.universe import build_universe, warning_blocked
+from krx_toss.strategy.universe import build_universe, merge_ranking_symbols, warning_blocked
 
 
 PARAMS = {
@@ -114,3 +114,11 @@ def test_universe_filters_warnings_and_etf():
     )
     assert uni.symbols == ["005930"]
     assert warning_blocked(warnings["000001"], ["INVESTMENT_WARNING"])
+
+
+def test_merge_keeps_unique_names_beyond_one_ranking_list():
+    day = {"rankings": [{"symbol": f"{i:06d}", "tradingAmount": str(1000 - i)} for i in range(100)]}
+    week = {"rankings": [{"symbol": f"{i:06d}", "tradingAmount": str(500 - i)} for i in range(80, 180)]}
+    merged = merge_ranking_symbols(day, week, limit=200, per_list=100)
+    assert len(merged) == 180
+    assert merged[0][0] == "000000"

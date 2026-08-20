@@ -51,13 +51,17 @@ def ranking_symbols(payload: dict[str, Any], limit: int) -> list[tuple[str, Deci
     return out
 
 
-def merge_ranking_symbols(*payloads: dict[str, Any], limit: int) -> list[tuple[str, Decimal]]:
+def merge_ranking_symbols(
+    *payloads: dict[str, Any],
+    limit: int,
+    per_list: int = 100,
+) -> list[tuple[str, Decimal]]:
     scores: dict[str, Decimal] = {}
     for payload in payloads:
-        for symbol, amount in ranking_symbols(payload, limit=100):
+        for symbol, amount in ranking_symbols(payload, limit=per_list):
             scores[symbol] = max(scores.get(symbol, Decimal("0")), amount)
     ranked = sorted(scores.items(), key=lambda kv: kv[1], reverse=True)
-    return ranked[:limit]
+    return ranked[:limit] if limit > 0 else ranked
 
 
 def is_tradable_stock(info: dict[str, Any], *, markets: Iterable[str], common_only: bool) -> bool:
