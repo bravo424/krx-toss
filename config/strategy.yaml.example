@@ -17,19 +17,23 @@ universe:
 
 signal:
   flow_lookback_sessions: 3
+  require_both_flows: false
   ma_window: 20
-  min_20d_return: 0.0
+  min_20d_return: -0.03
   max_3d_return: 0.13
   credit_lookback: 20
   max_credit_vs_avg: 1.5
-  kospi_skip_1d_return: -0.02
+  kospi_skip_1d_return: -0.08
+  reversal_kospi_1d: -0.012
+  reversal_min_1d: -0.025
+  reversal_max_1d: -0.12
 
 entry:
   after_kst: "09:15"
   order_info_peak_start: "09:00"
   order_info_peak_end: "09:10"
   no_new_orders_until: "09:15"
-  limit_offset_ticks: 0
+  limit_offset_ticks: 2
   time_in_force: DAY
 
 exit:

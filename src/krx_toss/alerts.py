@@ -182,7 +182,9 @@ class TradingAlerts:
             if name:
                 label = f"{label} {_esc(name)}"
             extra = f"  {_esc(market)}" if market else ""
-            lines.append(f"• <b>{label}</b>{extra}\n  Close {close}")
+            reasons = [str(x) for x in (row.get("reasons") or []) if x]
+            tag = f"  · {_esc(', '.join(reasons))}" if reasons else ""
+            lines.append(f"• <b>{label}</b>{extra}{tag}\n  Close {close}")
         self.trade.send("\n".join(lines))
 
     def kill_switch(self, reason: str) -> None:

@@ -5,7 +5,12 @@ from decimal import Decimal
 
 from helpers import make_candles, make_credit, make_flow
 
-from krx_toss.strategy.signals import evaluate_symbol, index_blocks_entries, select_signals
+from krx_toss.strategy.signals import (
+    evaluate_reversal_symbol,
+    evaluate_symbol,
+    index_blocks_entries,
+    select_signals,
+)
 from krx_toss.strategy.universe import (
     blocked_warning_set,
     build_universe,
@@ -91,6 +96,63 @@ def test_rejects_foreign_selling():
         symbol="005930", market="KOSPI", candles=candles, flow=flow, credit=credit, params=PARAMS
     )
     assert reason == "foreign_not_buying"
+
+
+def test_either_flow_accepts_foreign_only():
+    start = date(2026, 1, 1)
+    candles = make_candles(start, 30, drift=Decimal("40"))
+    flow = make_flow(start, 30, foreign=1000, institution=-500)
+    credit = make_credit(start, 30)
+    params = {**PARAMS, "require_both_flows": False}
+    signal, reason = evaluate_symbol(
+        symbol="005930", market="KOSPI", candles=candles, flow=flow, credit=credit, params=params
+    )
+    assert reason is None
+    assert signal is not None
+
+
+def test_reversal_accepts_dip_even_when_flow_is_selling():
+    start = date(2026, 1, 1)
+    candles = make_candles(start, 30, drift=Decimal("40"))
+    candles[-1].close = candles[-2].close * Decimal("0.95")
+    candles[-1].low = candles[-1].close
+    flow = make_flow(start, 30, foreign=-1000, institution=-500)
+    credit = make_credit(start, 30)
+    signal, reason = evaluate_reversal_symbol(
+        symbol="005930", market="KOSPI", candles=candles, flow=flow, credit=credit, params=PARAMS
+    )
+    assert reason is None
+    assert signal is not None
+    assert "dip_reversal" in signal.reasons
+    assert signal.ret_1d is not None and signal.ret_1d <= Decimal("-0.04")
+
+
+def test_reversal_rejects_shallow_dip():
+    start = date(2026, 1, 1)
+    candles = make_candles(start, 30, drift=Decimal("40"))
+    candles[-1].close = candles[-2].close * Decimal("0.99")
+    flow = make_flow(start, 30, -1, -1)
+    credit = make_credit(start, 30)
+    _, reason = evaluate_reversal_symbol(
+        symbol="005930", market="KOSPI", candles=candles, flow=flow, credit=credit, params=PARAMS
+    )
+    assert reason == "dip_too_small"
+
+
+def test_select_signals_uses_reversal_when_kospi_drops():
+    start = date(2026, 1, 1)
+    candles = make_candles(start, 30, drift=Decimal("40"))
+    candles[-1].close = candles[-2].close * Decimal("0.94")
+    candles[-1].low = candles[-1].close
+    kospi = make_candles(start, 30, start_px=Decimal("3000"), drift=Decimal("5"))
+    kospi[-1].close = kospi[-2].close * Decimal("0.98")
+    decision = select_signals(
+        [("005930", "KOSPI", candles, make_flow(start, 30, -1, -1), make_credit(start, 30))],
+        PARAMS,
+        kospi_candles=kospi,
+    )
+    assert len(decision.accepted) == 1
+    assert decision.accepted[0].reasons == ["dip_reversal"]
 
 
 def test_kospi_risk_off_blocks_all():

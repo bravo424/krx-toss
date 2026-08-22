@@ -8,7 +8,7 @@ from typing import Mapping
 from krx_toss.cost.model import CostModel
 from krx_toss.strategy.features import Candle, CreditDay, FlowDay, period_return
 from krx_toss.strategy.risk import RiskLimits, size_buy
-from krx_toss.strategy.signals import evaluate_symbol
+from krx_toss.strategy.signals import evaluate_reversal_symbol, evaluate_symbol
 from krx_toss.toss.decimal_utils import apply_tick_offset, to_decimal
 
 
@@ -161,15 +161,20 @@ def run_backtest(
 
         # entries: signal on day close, fill next open (T+1, 09:15 proxy)
         skip = to_decimal(signal_params.get("kospi_skip_1d_return", "-0.02"))
+        reversal_raw = signal_params.get("reversal_kospi_1d", "-0.012")
+        reversal_on = False
         if kospi and day in kospi_idx:
             kospi_slice = kospi[: kospi_idx[day] + 1]
             r1 = period_return([c.close for c in kospi_slice], 1)
             if r1 is not None and r1 < skip:
                 continue
+            if reversal_raw not in (None, "", False):
+                reversal_on = r1 is not None and r1 <= to_decimal(reversal_raw)
         if len(open_pos) >= max_pos:
             continue
 
-        ranked: list[tuple[Decimal, str]] = []
+        reversal_ranked: list[tuple[Decimal, str]] = []
+        momentum_ranked: list[tuple[Decimal, str]] = []
         for sym, hist in histories.items():
             if sym in open_pos:
                 continue
@@ -177,6 +182,18 @@ def run_backtest(
             if day not in idx:
                 continue
             end = idx[day] + 1
+            if reversal_on:
+                rev, _reason = evaluate_reversal_symbol(
+                    symbol=sym,
+                    market=hist.market,
+                    candles=hist.candles[:end],
+                    flow=_flow_until(hist.flow, day),
+                    credit=_credit_until(hist.credit, day),
+                    params=signal_params,
+                )
+                if rev and rev.ret_1d is not None:
+                    reversal_ranked.append((rev.ret_1d, sym))
+                    continue
             signal, _reason = evaluate_symbol(
                 symbol=sym,
                 market=hist.market,
@@ -186,8 +203,10 @@ def run_backtest(
                 params=signal_params,
             )
             if signal:
-                ranked.append((signal.foreign_net + signal.institution_net, sym))
-        ranked.sort(reverse=True)
+                momentum_ranked.append((signal.foreign_net + signal.institution_net, sym))
+        reversal_ranked.sort()
+        momentum_ranked.sort(reverse=True)
+        ranked = [(score, sym) for score, sym in reversal_ranked] + momentum_ranked
 
         for _score, sym in ranked:
             if len(open_pos) >= max_pos:

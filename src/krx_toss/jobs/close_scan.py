@@ -156,6 +156,7 @@ def scan_signals(
                 "foreign_net": str(s.foreign_net),
                 "institution_net": str(s.institution_net),
                 "reasons": s.reasons,
+                "ret_1d": str(s.ret_1d) if s.ret_1d is not None else None,
             }
             for s in decision.accepted
         ],

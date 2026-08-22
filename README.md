@@ -9,8 +9,8 @@ This is software, not investment advice. Past academic patterns in foreign flow 
 Foreign- and institution-flow confirmed momentum on liquid KOSPI/KOSDAQ common shares:
 
 1. Seed a watchlist from market turnover rankings (avoids scanning the whole book).
-2. Require 2–3 session net buying by foreigners **and** institutions, price above the 20-day MA, and no 3-day extension above ~13%.
-3. Skip new entries when KOSPI fell more than ~2% the prior day, and skip names with 정리매매 / 투자경고 / 단기과열 / exploding 융자 balances.
+2. Require 2–3 session net buying by foreigners **or** institutions, price above the 20-day MA, and no 3-day extension above ~13%.
+3. Skip new entries when KOSPI fell more than ~8% (crash halt). On a milder down day (~1.2%+), buy liquid names that sold off for a next-session bounce.
 4. Place **LIMIT buys after 09:15 KST** (after open-auction noise and the Toss `ORDER_INFO` 09:00–09:10 throttle).
 5. Attach an OCO take-profit / stop. Overlay polls **open positions only** on 1-minute bars for VI / warning / near-limit-up exits.
 
