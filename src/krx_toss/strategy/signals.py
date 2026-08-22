@@ -148,6 +148,15 @@ def evaluate_reversal_symbol(
     )
 
 
+def reversal_enabled(params: Mapping[str, Any], kospi_1d: Decimal | None) -> bool:
+    if bool(params.get("reversal_always", False)):
+        return True
+    raw = params.get("reversal_kospi_1d", "-0.012")
+    if raw in (None, "", False):
+        return False
+    return kospi_1d is not None and kospi_1d <= Decimal(str(raw))
+
+
 def index_blocks_entries(kospi_candles: list[Candle], skip_return: Decimal) -> bool:
     r1 = period_return([c.close for c in kospi_candles], 1)
     if r1 is None:
@@ -166,11 +175,7 @@ def select_signals(
     if kospi_candles and kospi_r1 is not None and kospi_r1 < skip:
         return SignalDecision(accepted=[], rejected={sym: "kospi_risk_off" for sym, *_ in candidates})
 
-    raw_trigger = params.get("reversal_kospi_1d", "-0.012")
-    reversal_on = False
-    if raw_trigger not in (None, "", False):
-        trigger = Decimal(str(raw_trigger))
-        reversal_on = kospi_r1 is not None and kospi_r1 <= trigger
+    reversal_on = reversal_enabled(params, kospi_r1)
 
     reversal: list[Signal] = []
     momentum: list[Signal] = []

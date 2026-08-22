@@ -14,9 +14,9 @@ Each after-close scan:
 2. Merges unique names and keeps a watchlist of about 180 liquid common shares.
 3. Drops 정리매매, 투자경고, 단기과열, 투자위험, warrants, and non-ACTIVE names.
 4. Accepts momentum names with foreign **or** institution net buying, price near/above the 20-day MA, and no 3-day extension above ~13%.
-5. If KOSPI fell at least ~1.2%, also accepts liquid names that dropped ~2.5–12% that day (`dip_reversal`) for a next-session bounce. Skips **all** new entries only if KOSPI fell more than ~8%.
+5. Dip-bounce (`dip_reversal`) can fire whenever a liquid name dropped ~1.5–15% that day, even if KOSPI was up. Skips **all** new entries only if KOSPI fell more than ~8%.
 
-The next session it places LIMIT buys after 09:15 KST (max 8 names), attaches an OCO take-profit / stop, and overlays **open positions only** on 1-minute bars.
+The next session it places LIMIT buys after 09:15 KST (max 12 names), attaches an OCO take-profit / stop, and overlays **open positions only** on 1-minute bars.
 
 ## One-time setup
 
@@ -96,17 +96,18 @@ Applied only to the watchlist. Accepted names are sorted by foreign + institutio
 
 | Key | Default | Effect |
 | --- | --- | --- |
-| `flow_lookback_sessions` | `3` | Sum of foreign / institution net over this many sessions. |
+| `flow_lookback_sessions` | `2` | Sum of foreign / institution net over this many sessions. |
 | `require_both_flows` | `false` | If true, both foreign and institution net must be > 0. If false, either is enough. |
 | `ma_window` | `20` | Momentum names must close above this SMA. Dip-reversal names skip this. |
-| `min_20d_return` | `-0.03` | Momentum 20-session return floor (slightly negative allows pullbacks). |
-| `max_3d_return` | `0.13` | Reject momentum names if 3-session return is above this (already extended). |
+| `min_20d_return` | `-0.06` | Momentum 20-session return floor. |
+| `max_3d_return` | `0.20` | Reject momentum names if 3-session return is above this. |
 | `credit_lookback` | `20` | Window for 융자 balance vs its average. |
-| `max_credit_vs_avg` | `1.5` | Reject if margin balance is this many times its average. |
+| `max_credit_vs_avg` | `2.0` | Reject if margin balance is this many times its average. |
 | `kospi_skip_1d_return` | `-0.08` | Crash halt: if KOSPI 1-day return is below this, skip **all** new entries. |
-| `reversal_kospi_1d` | `-0.012` | If KOSPI fell at least this much, also accept dip-bounce names for the next session. |
-| `reversal_min_1d` | `-0.025` | Name must have fallen at least this much on that down day. |
-| `reversal_max_1d` | `-0.12` | Skip names that crashed harder than this (halt / gap risk). |
+| `reversal_always` | `true` | If true, dip-bounce names qualify even when KOSPI was up (idiosyncratic dumps). |
+| `reversal_kospi_1d` | `0.0` | If `reversal_always` is false, require KOSPI 1-day return ≤ this. |
+| `reversal_min_1d` | `-0.015` | Name must have fallen at least this much that day. |
+| `reversal_max_1d` | `-0.15` | Skip names that crashed harder than this (halt / gap risk). |
 
 #### Entry — when and how LIMIT buys are sent
 
@@ -136,7 +137,7 @@ Overlay also flattens if a holding picks up a `blocked_warning_types` flag.
 
 | Key | Default | Effect |
 | --- | --- | --- |
-| `max_positions` | `8` | Cap on concurrent names. |
+| `max_positions` | `12` | Cap on concurrent names. |
 | `position_nav_pct` | `0.10` | Target notional per name as a fraction of NAV. |
 | `cash_buffer_pct` | `0.20` | Keep this fraction of NAV unspent. |
 | `per_name_risk_pct` | `0.02` | Size so a stop-loss is about this fraction of NAV. |

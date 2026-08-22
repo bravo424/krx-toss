@@ -8,7 +8,7 @@ from typing import Mapping
 from krx_toss.cost.model import CostModel
 from krx_toss.strategy.features import Candle, CreditDay, FlowDay, period_return
 from krx_toss.strategy.risk import RiskLimits, size_buy
-from krx_toss.strategy.signals import evaluate_reversal_symbol, evaluate_symbol
+from krx_toss.strategy.signals import evaluate_reversal_symbol, evaluate_symbol, reversal_enabled
 from krx_toss.toss.decimal_utils import apply_tick_offset, to_decimal
 
 
@@ -161,15 +161,13 @@ def run_backtest(
 
         # entries: signal on day close, fill next open (T+1, 09:15 proxy)
         skip = to_decimal(signal_params.get("kospi_skip_1d_return", "-0.02"))
-        reversal_raw = signal_params.get("reversal_kospi_1d", "-0.012")
-        reversal_on = False
+        reversal_on = bool(signal_params.get("reversal_always", False))
         if kospi and day in kospi_idx:
             kospi_slice = kospi[: kospi_idx[day] + 1]
             r1 = period_return([c.close for c in kospi_slice], 1)
             if r1 is not None and r1 < skip:
                 continue
-            if reversal_raw not in (None, "", False):
-                reversal_on = r1 is not None and r1 <= to_decimal(reversal_raw)
+            reversal_on = reversal_enabled(signal_params, r1)
         if len(open_pos) >= max_pos:
             continue
 

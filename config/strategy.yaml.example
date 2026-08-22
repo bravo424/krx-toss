@@ -16,24 +16,25 @@ universe:
     - STOCK_WARRANTS
 
 signal:
-  flow_lookback_sessions: 3
+  flow_lookback_sessions: 2
   require_both_flows: false
   ma_window: 20
-  min_20d_return: -0.03
-  max_3d_return: 0.13
+  min_20d_return: -0.06
+  max_3d_return: 0.20
   credit_lookback: 20
-  max_credit_vs_avg: 1.5
+  max_credit_vs_avg: 2.0
   kospi_skip_1d_return: -0.08
-  reversal_kospi_1d: -0.012
-  reversal_min_1d: -0.025
-  reversal_max_1d: -0.12
+  reversal_always: true
+  reversal_kospi_1d: 0.0
+  reversal_min_1d: -0.015
+  reversal_max_1d: -0.15
 
 entry:
   after_kst: "09:15"
   order_info_peak_start: "09:00"
   order_info_peak_end: "09:10"
   no_new_orders_until: "09:15"
-  limit_offset_ticks: 2
+  limit_offset_ticks: 3
   time_in_force: DAY
 
 exit:
@@ -45,10 +46,10 @@ exit:
   overlay_vi_flatten: true
 
 risk:
-  max_positions: 8
-  position_nav_pct: 0.10
-  cash_buffer_pct: 0.20
-  per_name_risk_pct: 0.02
+  max_positions: 12
+  position_nav_pct: 0.08
+  cash_buffer_pct: 0.15
+  per_name_risk_pct: 0.025
   daily_loss_kill_pct: 0.02
   max_notional_per_name: 5000000000
   kospi_ownership_pct: 0.01

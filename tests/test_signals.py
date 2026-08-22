@@ -155,6 +155,22 @@ def test_select_signals_uses_reversal_when_kospi_drops():
     assert decision.accepted[0].reasons == ["dip_reversal"]
 
 
+def test_reversal_always_catches_idiosyncratic_dump_on_up_kospi():
+    start = date(2026, 1, 1)
+    candles = make_candles(start, 30, drift=Decimal("40"))
+    candles[-1].close = candles[-2].close * Decimal("0.97")
+    candles[-1].low = candles[-1].close
+    kospi = make_candles(start, 30, start_px=Decimal("3000"), drift=Decimal("10"))
+    params = {**PARAMS, "reversal_always": True, "reversal_min_1d": "-0.015"}
+    decision = select_signals(
+        [("005930", "KOSPI", candles, make_flow(start, 30, -1, -1), make_credit(start, 30))],
+        params,
+        kospi_candles=kospi,
+    )
+    assert len(decision.accepted) == 1
+    assert decision.accepted[0].reasons == ["dip_reversal"]
+
+
 def test_kospi_risk_off_blocks_all():
     start = date(2026, 1, 1)
     kospi = make_candles(start, 5, start_px=Decimal("3000"), drift=Decimal("-100"))
