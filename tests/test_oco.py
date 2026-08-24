@@ -28,7 +28,10 @@ class DummyClient:
         self.sellable: dict[str, int] = {}
         self.holdings: list[dict] = []
         self.oco_error: Exception | None = None
+        self.modify_error: Exception | None = None
         self.prices: dict[str, str] = {}
+        self.modified: list[tuple[str, dict]] = []
+        self.cancelled: list[str] = []
 
     def create_order(self, body):
         self.created.append(body)
@@ -41,6 +44,15 @@ class DummyClient:
             raise self.oco_error
         self.conditionals.append(body)
         return {"conditionalOrderId": f"oco-{len(self.conditionals)}"}
+
+    def modify_conditional_order(self, cid, body):
+        if self.modify_error:
+            raise self.modify_error
+        self.modified.append((cid, body))
+        return {"conditionalOrderId": f"oco-mod-{len(self.modified)}"}
+
+    def cancel_conditional_order(self, cid):
+        self.cancelled.append(cid)
 
     def get_order(self, order_id):
         return self.orders.get(order_id, {"status": "OPEN"})
@@ -197,3 +209,51 @@ def test_place_entries_skips_pending_buy_and_does_not_crash_on_oco(tmp_path: Pat
     second = place_entries(client, broker, settings, now=now)
     assert second == []
     assert len(client.created) == 2
+
+
+def test_replace_oco_prefers_modify(tmp_path: Path):
+    client = DummyClient()
+    client.sellable["096770"] = 10
+    broker = _broker(tmp_path, client)
+    broker.blotter.upsert_position(
+        "096770", 10, Decimal("130900"), "KOSPI", "2026-08-19", "oco-1", Decimal("125664"), Decimal("141372")
+    )
+    result = broker.replace_oco(
+        "096770",
+        stop=Decimal("138754"),
+        take_profit=Decimal("141372"),
+        reason="lock_profit",
+    )
+    assert result is not None
+    assert client.modified[0][0] == "oco-1"
+    assert client.cancelled == []
+    assert client.conditionals == []
+    pos = broker.blotter.position("096770")
+    assert pos is not None
+    assert pos["oco_id"] == "oco-mod-1"
+    assert pos["stop_price"] == "138754"
+    assert pos["take_profit_price"] == "141372"
+
+
+def test_replace_oco_falls_back_to_cancel_create(tmp_path: Path):
+    client = DummyClient()
+    client.sellable["096770"] = 10
+    client.modify_error = TossApiError("cannot modify", status_code=400)
+    broker = _broker(tmp_path, client)
+    broker.blotter.upsert_position(
+        "096770", 10, Decimal("130900"), "KOSPI", "2026-08-19", "oco-1", Decimal("125664"), Decimal("141372")
+    )
+    result = broker.replace_oco(
+        "096770",
+        stop=Decimal("138754"),
+        take_profit=Decimal("141372"),
+        reason="lock_profit",
+    )
+    assert result is not None
+    assert client.cancelled == ["oco-1"]
+    assert len(client.conditionals) == 1
+    assert client.conditionals[0]["second"]["orderPrice"] == "138754"
+    pos = broker.blotter.position("096770")
+    assert pos is not None
+    assert pos["oco_id"] == "oco-1"
+    assert pos["stop_price"] == "138754"

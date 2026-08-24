@@ -171,8 +171,9 @@ def cmd_backtest(settings: Settings, nav: Decimal) -> int:
         signal_params=settings.strategy_section("signal"),
         start_nav=nav,
         slippage_ticks=int((settings.strategy.get("cost") or {}).get("slippage_ticks", 1)),
-        take_profit=to_decimal(exit_cfg.get("take_profit", "0.06")),
+        take_profit=to_decimal(exit_cfg.get("take_profit", "0.08")),
         stop_loss=to_decimal(exit_cfg.get("stop_loss", "0.04")),
+        lock_profit=to_decimal(exit_cfg.get("lock_profit", "0.06")),
         time_stop=int(exit_cfg.get("time_stop_sessions", 5)),
     )
     print(

@@ -16,7 +16,7 @@ Each after-close scan:
 4. Accepts momentum names with foreign **or** institution net buying, price near/above the 20-day MA, and no 3-day extension above ~13%.
 5. Dip-bounce (`dip_reversal`) can fire whenever a liquid name dropped ~1.5–15% that day, even if KOSPI was up. Skips **all** new entries only if KOSPI fell more than ~8%.
 
-The next session it places LIMIT buys after 09:15 KST (max 12 names), attaches an OCO take-profit / stop, and overlays **open positions only** on 1-minute bars.
+The next session it places LIMIT buys after 09:15 KST (max 12 names), attaches an OCO take-profit / stop, and overlays **open positions only**. Toss has no trailing stop, so when last price reaches `lock_profit` the overlay raises the OCO stop to that gain and leaves the take-profit at `take_profit`.
 
 ## One-time setup
 
@@ -124,8 +124,9 @@ Entries also skip if the kill switch is tripped, if `signals.json` is missing, i
 
 | Key | Default | Effect |
 | --- | --- | --- |
-| `take_profit` | `0.06` | OCO LIMIT sell at entry × (1 + this). |
-| `stop_loss` | `0.04` | OCO stop and per-name risk sizing. |
+| `take_profit` | `0.08` | Initial OCO LIMIT sell at entry × (1 + this). |
+| `lock_profit` | `0.06` | Overlay raises the OCO stop to this gain once last price gets there. `0` disables. One ratchet only — not a continuous trail. |
+| `stop_loss` | `0.04` | Initial OCO stop and per-name risk sizing. |
 | `time_stop_sessions` | `5` | EOD job flattens names held this many sessions. |
 | `oco_expire_days` | `7` | Intended OCO lifetime. |
 | `flatten_near_limit_pct` | `0.02` | Overlay market-sells if last price is within 2% of the upper limit. |
@@ -234,7 +235,7 @@ krx-toss run
 | `krx-toss fetch-cache` | Yes | No | Scan plus extra KOSPI candles. |
 | `krx-toss paper` | Yes | Dry-run only | Uses last `signals.json`; scans first if missing. |
 | `krx-toss live --i-understand-the-risk` | Yes | Live | Refuses unless `dry_run: false`. |
-| `krx-toss overlay` | Yes | Follows `dry_run` | Holdings only, 1-minute bars. |
+| `krx-toss overlay` | Yes | Follows `dry_run` | Holdings only. Can flatten on VI/warnings/near-limit, or raise the OCO stop to `lock_profit`. |
 | `krx-toss eod` | Yes | Follows `dry_run` | Time-stop flatten + daily-loss kill switch. |
 | `krx-toss run` | Yes | Follows `dry_run` | Calendar loop. |
 | `krx-toss run --once` | Yes | Follows `dry_run` | One loop, then exit. |
@@ -291,7 +292,8 @@ signal:
 
 ```yaml
 exit:
-  take_profit: 0.08
+  take_profit: 0.10
+  lock_profit: 0.06
   stop_loss: 0.06
   time_stop_sessions: 7
 ```

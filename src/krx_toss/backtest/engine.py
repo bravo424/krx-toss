@@ -80,8 +80,9 @@ def run_backtest(
     signal_params: Mapping[str, object],
     start_nav: Decimal,
     slippage_ticks: int = 1,
-    take_profit: Decimal = Decimal("0.06"),
+    take_profit: Decimal = Decimal("0.08"),
     stop_loss: Decimal = Decimal("0.04"),
+    lock_profit: Decimal = Decimal("0.06"),
     time_stop: int = 5,
     max_positions: int | None = None,
 ) -> BacktestResult:
@@ -137,6 +138,11 @@ def run_backtest(
                 if flow and flow[-1].foreign_net < 0 and flow[-1].institution_net < 0:
                     exit_px = apply_tick_offset(nxt.open, -slippage_ticks, hist.market, side="SELL")
                     reason = "flow_reversal"
+            if exit_px is None and lock_profit > 0 and not pos.get("locked") and pos.get("lock_px"):
+                lock_px = pos["lock_px"]
+                if nxt.high >= lock_px and nxt.high < tp_px and lock_px < tp_px:
+                    pos["stop"] = lock_px
+                    pos["locked"] = True
             if exit_px is not None:
                 buy_notional = pos["entry"] * pos["qty"]
                 sell_notional = exit_px * pos["qty"]
@@ -232,12 +238,19 @@ def run_backtest(
             cash -= notional + buy_cost
             stop = apply_tick_offset(entry * (Decimal("1") - stop_loss), 0, hist.market, side="SELL")
             tp = apply_tick_offset(entry * (Decimal("1") + take_profit), 0, hist.market, side="SELL")
+            lock_px = (
+                apply_tick_offset(entry * (Decimal("1") + lock_profit), 0, hist.market, side="SELL")
+                if lock_profit > 0
+                else None
+            )
             open_pos[sym] = {
                 "qty": intent.quantity,
                 "entry": entry,
                 "entry_date": next_day,
                 "stop": stop,
                 "tp": tp,
+                "lock_px": lock_px,
+                "locked": False,
                 "sessions": 0,
             }
 

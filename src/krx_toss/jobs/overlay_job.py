@@ -17,6 +17,7 @@ def run_overlay(client: TossClient, broker: Broker, settings: Settings) -> list[
     uni = settings.strategy_section("universe")
     near = to_decimal(exit_cfg.get("flatten_near_limit_pct", "0.02"))
     flatten_vi = bool(exit_cfg.get("overlay_vi_flatten", True))
+    lock_pct = to_decimal(exit_cfg.get("lock_profit", "0"))
     blocked = blocked_warning_set(uni.get("blocked_warning_types"))
     positions = broker.blotter.positions()
     marks = broker.last_prices([str(pos["symbol"]) for pos in positions])
@@ -41,6 +42,7 @@ def run_overlay(client: TossClient, broker: Broker, settings: Settings) -> list[
             near_limit_pct=near,
             flatten_on_vi=flatten_vi,
             blocked_warnings=blocked,
+            lock_profit_pct=lock_pct,
         )
         if reason:
             actions.append(f"{symbol}:{reason}")

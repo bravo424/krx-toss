@@ -255,9 +255,26 @@ class Broker:
                 log.info("skip OCO %s: no sellable shares yet (buy unfilled)", intent.symbol)
                 return None
             qty = min(qty, sellable)
+        body = self._oco_body(intent, qty)
+        if self.dry_run:
+            log.info("DRY RUN OCO %s", body)
+            oco_id = f"dry-oco-{body['clientOrderId']}"
+            self._remember_oco(intent.symbol, intent.market, oco_id, intent.stop_price, intent.take_profit_price)
+            return {"conditionalOrderId": oco_id, "dryRun": True}
+        try:
+            result = self.client.create_conditional_order(body)
+        except TossApiError as exc:
+            log.warning("OCO rejected %s: %s", intent.symbol, exc)
+            return None
+        oco_id = str(result.get("conditionalOrderId") or "")
+        self._remember_oco(intent.symbol, intent.market, oco_id, intent.stop_price, intent.take_profit_price)
+        log.info("OCO attached %s qty=%s tp=%s sl=%s", intent.symbol, qty, intent.take_profit_price, intent.stop_price)
+        return result
+
+    def _oco_body(self, intent: OrderIntent, qty: int) -> dict[str, Any]:
         expire_days = max(1, int(getattr(self.limits, "oco_expire_days", 7)))
         expire = (datetime.now(KST).date() + timedelta(days=expire_days)).isoformat()
-        body = {
+        return {
             "symbol": intent.symbol,
             "type": "OCO",
             "quantity": str(qty),
@@ -276,19 +293,64 @@ class Broker:
                 "orderPrice": str(int(intent.stop_price)),
             },
         }
-        if self.dry_run:
-            log.info("DRY RUN OCO %s", body)
-            oco_id = f"dry-oco-{body['clientOrderId']}"
-            self._remember_oco(intent.symbol, intent.market, oco_id, intent.stop_price, intent.take_profit_price)
-            return {"conditionalOrderId": oco_id, "dryRun": True}
-        try:
-            result = self.client.create_conditional_order(body)
-        except TossApiError as exc:
-            log.warning("OCO rejected %s: %s", intent.symbol, exc)
+
+    def replace_oco(
+        self,
+        symbol: str,
+        *,
+        stop: Decimal,
+        take_profit: Decimal,
+        reason: str = "lock_profit",
+    ) -> dict[str, Any] | None:
+        """Re-arm OCO with a new stop / TP. Prefers Toss modify; falls back to cancel+create."""
+        pos = self.blotter.position(symbol)
+        if not pos or int(pos["quantity"]) <= 0:
             return None
-        oco_id = str(result.get("conditionalOrderId") or "")
-        self._remember_oco(intent.symbol, intent.market, oco_id, intent.stop_price, intent.take_profit_price)
-        log.info("OCO attached %s qty=%s tp=%s sl=%s", intent.symbol, qty, intent.take_profit_price, intent.stop_price)
+        market = pos.get("market") or "KOSPI"
+        qty = int(pos["quantity"])
+        intent = OrderIntent(
+            symbol=symbol,
+            market=market,
+            side="SELL",
+            quantity=qty,
+            price=Decimal(pos["avg_price"]),
+            confirm_high_value=(take_profit * qty) >= self.limits.high_value_threshold,
+            notional=Decimal(pos["avg_price"]) * qty,
+            stop_price=stop,
+            take_profit_price=take_profit,
+        )
+        old_id = str(pos.get("oco_id") or "")
+        body = self._oco_body(intent, qty)
+        if self.dry_run:
+            self._remember_oco(symbol, market, old_id or f"dry-oco-{body['clientOrderId']}", stop, take_profit)
+            log.info("DRY RUN OCO replace %s %s sl=%s tp=%s", symbol, reason, stop, take_profit)
+            return {"conditionalOrderId": old_id, "dryRun": True, "reason": reason}
+        result: dict[str, Any] | None = None
+        if old_id and not old_id.startswith("dry-"):
+            try:
+                modify_body = {k: v for k, v in body.items() if k != "symbol"}
+                result = self.client.modify_conditional_order(old_id, modify_body)
+            except TossApiError as exc:
+                log.warning("OCO modify failed %s: %s — cancel+create", symbol, exc)
+                try:
+                    self.client.cancel_conditional_order(old_id)
+                except TossApiError as cancel_exc:
+                    log.warning("OCO cancel before replace failed %s: %s", symbol, cancel_exc)
+                self.blotter.upsert_position(
+                    symbol,
+                    qty,
+                    Decimal(pos["avg_price"]),
+                    market,
+                    pos.get("opened_on") or date.today().isoformat(),
+                    None,
+                    stop,
+                    take_profit,
+                )
+        if result is None:
+            return self.attach_oco(intent, quantity=qty)
+        oco_id = str(result.get("conditionalOrderId") or old_id)
+        self._remember_oco(symbol, market, oco_id, stop, take_profit)
+        log.info("OCO replaced %s %s sl=%s tp=%s id=%s", symbol, reason, stop, take_profit, oco_id)
         return result
 
     def ensure_oco(self, symbol: str, holdings_by_symbol: dict[str, dict[str, Any]] | None = None) -> dict[str, Any] | None:

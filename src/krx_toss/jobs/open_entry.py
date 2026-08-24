@@ -53,7 +53,7 @@ def place_entries(client: TossClient, broker: Broker, settings: Settings, now: d
     open_count = len(blocked)
     results = []
     offset = int(entry_cfg.get("limit_offset_ticks", 0))
-    take_profit = to_decimal(exit_cfg.get("take_profit", "0.06"))
+    take_profit = to_decimal(exit_cfg.get("take_profit", "0.08"))
     universe_map = {row["symbol"]: row for row in payload.get("universe") or []}
     wanted = [s.symbol for s in signals if s.symbol not in blocked][: max(0, limits.max_positions - open_count)]
     marks = broker.last_prices(wanted)

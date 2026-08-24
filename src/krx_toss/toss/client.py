@@ -356,6 +356,18 @@ class TossClient:
             )
         )
 
+    def modify_conditional_order(self, conditional_order_id: str, body: dict[str, Any]) -> dict[str, Any]:
+        return _as_dict(
+            self.request(
+                "POST",
+                f"/api/v1/conditional-orders/{conditional_order_id}/modify",
+                group="CONDITIONAL_ORDER",
+                json=body,
+                account=True,
+                idempotent=False,
+            )
+        )
+
     def cancel_conditional_order(self, conditional_order_id: str) -> None:
         self.request(
             "DELETE",

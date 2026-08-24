@@ -37,6 +37,9 @@ class DummyClient:
     def cancel_conditional_order(self, cid):
         return None
 
+    def modify_conditional_order(self, cid, body):
+        return {"conditionalOrderId": f"mod-{cid}"}
+
     def get_order(self, order_id):
         return self.orders.get(order_id, {"status": "OPEN"})
 

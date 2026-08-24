@@ -115,6 +115,29 @@ class TradingAlerts:
             lines.append(f"Order: <code>{_esc(order_id)}</code>")
         self.trade.send("\n".join(lines))
 
+    def oco_locked(
+        self,
+        *,
+        symbol: str,
+        last_price: Decimal,
+        stop_price: Decimal,
+        take_profit_price: Decimal,
+        dry_run: bool,
+        name: str | None = None,
+    ) -> None:
+        if self.trade is None:
+            return
+        self.trade.send(
+            "\n".join(
+                [
+                    f"🔒 <b>Profit locked{_dry_suffix(dry_run)}</b>",
+                    f"Strategy: <b>{STRATEGY}</b>",
+                    f"Symbol: <b>{_symbol_label(symbol, name)}</b>",
+                    f"Last {_krw(last_price)}  SL {_krw(stop_price)}  TP {_krw(take_profit_price)}",
+                ]
+            )
+        )
+
     def order_filled(
         self,
         *,

@@ -75,3 +75,10 @@ def test_daily_loss_kill():
     lim = limits()
     assert daily_loss_breached(Decimal("100000000"), Decimal("-2500000"), lim)
     assert not daily_loss_breached(Decimal("100000000"), Decimal("-100000"), lim)
+
+
+def test_lock_profit_defaults():
+    lim = RiskLimits.from_strategy({"risk": {}, "exit": {}})
+    assert lim.take_profit == Decimal("0.08")
+    assert lim.lock_profit == Decimal("0.06")
+    assert lim.stop_loss == Decimal("0.04")

@@ -38,7 +38,8 @@ entry:
   time_in_force: DAY
 
 exit:
-  take_profit: 0.06
+  take_profit: 0.08
+  lock_profit: 0.06
   stop_loss: 0.04
   time_stop_sessions: 5
   oco_expire_days: 7

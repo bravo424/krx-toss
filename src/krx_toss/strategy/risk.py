@@ -25,6 +25,7 @@ class RiskLimits:
     high_value_threshold: Decimal
     stop_loss: Decimal
     take_profit: Decimal
+    lock_profit: Decimal
     oco_expire_days: int
 
     @classmethod
@@ -42,7 +43,8 @@ class RiskLimits:
             kosdaq_ownership_pct=to_decimal(risk.get("kosdaq_ownership_pct", "0.02")),
             high_value_threshold=to_decimal(risk.get("high_value_threshold", HIGH_VALUE)),
             stop_loss=to_decimal(exit_cfg.get("stop_loss", "0.04")),
-            take_profit=to_decimal(exit_cfg.get("take_profit", "0.06")),
+            take_profit=to_decimal(exit_cfg.get("take_profit", "0.08")),
+            lock_profit=to_decimal(exit_cfg.get("lock_profit", "0.06")),
             oco_expire_days=max(1, int(exit_cfg.get("oco_expire_days", 7))),
         )
 
