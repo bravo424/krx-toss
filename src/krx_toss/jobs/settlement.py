@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
-from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
@@ -10,7 +8,6 @@ from zoneinfo import ZoneInfo
 
 from krx_toss.execution.broker import Broker
 from krx_toss.jobs.calendar import calendar_is_open
-from krx_toss.jobs.open_entry import estimate_nav
 from krx_toss.toss.client import TossClient
 from krx_toss.toss.decimal_utils import to_decimal
 
@@ -18,35 +15,87 @@ log = logging.getLogger(__name__)
 KST = ZoneInfo("Asia/Seoul")
 
 
-@dataclass(frozen=True)
-class SettlementFlow:
-    settle_on: date
-    amount: Decimal
-    symbol: str
-    side: str
-
-
-def _as_date(value: Any) -> date | None:
-    if value is None or value == "":
-        return None
-    if isinstance(value, date) and not isinstance(value, datetime):
-        return value
-    text = str(value)[:10]
-    try:
-        return date.fromisoformat(text)
-    except ValueError:
-        return None
-
-
 def _money(payload: Any) -> Decimal:
-    if payload is None:
+    """KRW from a Toss money field: bare decimal or nested ``{amount:{krw}}`` / ``{krw}``."""
+    if payload is None or payload == "":
         return Decimal("0")
     if isinstance(payload, dict):
-        inner = payload.get("krw") or payload.get("KRW") or payload.get("amount") or payload.get("value")
-        if inner is not None and not isinstance(inner, dict):
-            return to_decimal(inner, default=Decimal("0"))
+        if payload.get("krw") is not None or payload.get("KRW") is not None:
+            return to_decimal(payload.get("krw") or payload.get("KRW"), default=Decimal("0"))
+        for key in ("amount", "cashBuyingPower", "value", "cash"):
+            if payload.get(key) is not None:
+                got = _money(payload.get(key))
+                if got:
+                    return got
         return Decimal("0")
     return to_decimal(payload, default=Decimal("0"))
+
+
+def holdings_market_value_krw(holdings: dict[str, Any] | None) -> Decimal:
+    if not holdings:
+        return Decimal("0")
+    overview = holdings.get("marketValue")
+    if isinstance(overview, dict):
+        value = _money(overview.get("amount") if overview.get("amount") is not None else overview)
+        if value > 0:
+            return value
+    total = Decimal("0")
+    for item in holdings.get("items") or []:
+        if not isinstance(item, dict):
+            continue
+        mv = item.get("marketValue")
+        if isinstance(mv, dict):
+            piece = _money(mv.get("amount") if mv.get("amount") is not None else mv)
+        else:
+            piece = _money(mv)
+        if piece <= 0:
+            qty = to_decimal(item.get("quantity") or 0, default=Decimal("0"))
+            last = to_decimal(item.get("lastPrice") or 0, default=Decimal("0"))
+            piece = qty * last
+        total += piece
+    return total
+
+
+def holdings_as_positions(
+    holdings: dict[str, Any] | None,
+) -> tuple[list[dict[str, Any]], dict[str, Decimal], dict[str, str]]:
+    positions: list[dict[str, Any]] = []
+    marks: dict[str, Decimal] = {}
+    names: dict[str, str] = {}
+    for item in (holdings or {}).get("items") or []:
+        if not isinstance(item, dict):
+            continue
+        symbol = str(item.get("symbol") or "")
+        qty = int(to_decimal(item.get("quantity") or 0, default=Decimal("0")))
+        if not symbol or qty <= 0:
+            continue
+        avg = to_decimal(item.get("averagePurchasePrice") or 0, default=Decimal("0"))
+        last = to_decimal(item.get("lastPrice") or 0, default=Decimal("0"))
+        positions.append({"symbol": symbol, "quantity": qty, "avg_price": str(avg), "name": item.get("name") or ""})
+        if last > 0:
+            marks[symbol] = last
+        if item.get("name"):
+            names[symbol] = str(item["name"])
+    return positions, marks, names
+
+
+def reserved_buy_notional(orders: list[dict[str, Any]]) -> Decimal:
+    """Cash locked in unfilled BUY orders — Toss subtracts this from cashBuyingPower."""
+    total = Decimal("0")
+    for order in orders:
+        if str(order.get("side") or "").upper() != "BUY":
+            continue
+        qty = to_decimal(order.get("quantity") or 0, default=Decimal("0"))
+        execution = order.get("execution") if isinstance(order.get("execution"), dict) else {}
+        filled = to_decimal(execution.get("filledQuantity") or 0, default=Decimal("0"))
+        remaining = qty - filled
+        if remaining <= 0:
+            continue
+        px = to_decimal(order.get("price") or 0, default=Decimal("0"))
+        if px <= 0:
+            continue
+        total += remaining * px
+    return total
 
 
 def _order_items(payload: dict[str, Any] | list[dict[str, Any]]) -> tuple[list[dict[str, Any]], str | None]:
@@ -118,87 +167,24 @@ def net_cash_from_order(order: dict[str, Any]) -> Decimal:
     return Decimal("0")
 
 
-def settlement_date_of(
-    order: dict[str, Any],
-    *,
-    fallback_sessions: Callable[[date, int], list[date]] | None = None,
-) -> date | None:
-    execution = order.get("execution") if isinstance(order.get("execution"), dict) else {}
-    settle = _as_date(execution.get("settlementDate") or order.get("settlementDate"))
-    if settle:
-        return settle
-    filled = _as_date(execution.get("filledAt") or order.get("filledAt") or order.get("orderedAt"))
-    if filled is None:
-        return None
-    if fallback_sessions is None:
-        return filled + timedelta(days=2)
-    extra = fallback_sessions(filled, 2)
-    return extra[-1] if extra else filled + timedelta(days=2)
-
-
 def project_ladder(
-    buying_power: Decimal,
-    flows: list[SettlementFlow],
+    available: Decimal,
     t: date,
     t1: date,
     t2: date,
 ) -> dict[str, dict[str, Any]]:
-    """T is spendable cash now. T+1/T+2 add SELL proceeds that settle on those dates.
+    """T/T+1/T+2 are Toss available cash (주문가능 + open-buy reserve).
 
-    Buys already reduced buying power, so only future sell inflows are added.
+    ``cashBuyingPower`` already includes unsettled sell proceeds, so those
+    fills must not be added again.
     """
-    by_day = {t: Decimal("0"), t1: Decimal("0"), t2: Decimal("0")}
-    for flow in flows:
-        if flow.amount <= 0:
-            continue
-        if flow.settle_on in by_day and flow.settle_on > t:
-            by_day[flow.settle_on] += flow.amount
-    cash_t = buying_power
-    cash_t1 = cash_t + by_day[t1]
-    cash_t2 = cash_t1 + by_day[t2]
+    cash = available
+    zero = Decimal("0")
     return {
-        "T": {"date": t.isoformat(), "cash": cash_t, "inflow": by_day[t]},
-        "T+1": {"date": t1.isoformat(), "cash": cash_t1, "inflow": by_day[t1]},
-        "T+2": {"date": t2.isoformat(), "cash": cash_t2, "inflow": by_day[t2]},
+        "T": {"date": t.isoformat(), "cash": cash, "inflow": zero},
+        "T+1": {"date": t1.isoformat(), "cash": cash, "inflow": zero},
+        "T+2": {"date": t2.isoformat(), "cash": cash, "inflow": zero},
     }
-
-
-def _list_closed_orders(client: TossClient, start: date, end: date) -> list[dict[str, Any]]:
-    out: list[dict[str, Any]] = []
-    cursor: str | None = None
-    for _ in range(8):
-        payload = client.get_orders(
-            "CLOSED",
-            from_date=start.isoformat(),
-            to_date=end.isoformat(),
-            cursor=cursor,
-            limit=100,
-        )
-        items, cursor = _order_items(payload)
-        out.extend(items)
-        if not cursor or not items:
-            break
-    return out
-
-
-def _flows_from_orders(orders: list[dict[str, Any]], *, fallback) -> list[SettlementFlow]:
-    flows: list[SettlementFlow] = []
-    for order in orders:
-        amount = net_cash_from_order(order)
-        if amount == 0:
-            continue
-        settle = settlement_date_of(order, fallback_sessions=fallback)
-        if settle is None:
-            continue
-        flows.append(
-            SettlementFlow(
-                settle_on=settle,
-                amount=amount,
-                symbol=str(order.get("symbol") or ""),
-                side=str(order.get("side") or "").upper(),
-            )
-        )
-    return flows
 
 
 def settlement_snapshot(client: TossClient, broker: Broker, *, as_of: date | None = None) -> dict[str, Any]:
@@ -208,63 +194,46 @@ def settlement_snapshot(client: TossClient, broker: Broker, *, as_of: date | Non
         today + timedelta(days=2),
     )
     buying_power = broker.buying_power_krw()
-    lookback = today - timedelta(days=10)
-
-    def fallback(start: date, count: int) -> list[date]:
-        if broker.dry_run:
-            return [start + timedelta(days=i + 1) for i in range(count)]
-        return next_session_days(client, start, count=count)
-
-    flows: list[SettlementFlow] = []
+    reserved = Decimal("0")
+    holdings: dict[str, Any] = {}
     if not broker.dry_run:
         try:
-            orders = _list_closed_orders(client, lookback, t2)
-            flows = _flows_from_orders(orders, fallback=fallback)
+            open_items, _cursor = _order_items(client.get_orders("OPEN", limit=100))
+            reserved = reserved_buy_notional(open_items)
         except Exception as exc:  # noqa: BLE001
-            log.warning("closed orders for settlement failed: %s", exc)
-    if not flows:
-        for row in broker.blotter.fills(limit=200):
-            ts = _as_date(row.get("ts"))
-            if ts is None:
-                continue
-            qty = int(row["quantity"])
-            px = to_decimal(row["price"])
-            side = str(row["side"]).upper()
-            notional = px * qty
-            amount = notional if side == "SELL" else -notional
-            extra = fallback(ts, 2)
-            settle = extra[-1] if extra else ts + timedelta(days=2)
-            flows.append(SettlementFlow(settle_on=settle, amount=amount, symbol=str(row["symbol"]), side=side))
+            log.warning("open orders for cash snapshot failed: %s", exc)
+        try:
+            holdings = client.get_holdings()
+        except Exception as exc:  # noqa: BLE001
+            log.warning("holdings for settlement failed: %s", exc)
+    else:
+        holdings = {"items": broker.blotter.positions()}
 
-    ladder = project_ladder(buying_power, flows, today, t1, t2)
-    pending = [
-        {
-            "date": flow.settle_on.isoformat(),
-            "symbol": flow.symbol,
-            "side": flow.side,
-            "amount": flow.amount,
-        }
-        for flow in flows
-        if flow.amount > 0 and flow.settle_on > today
-    ]
-    holdings_value = Decimal("0")
-    try:
-        holdings = client.get_holdings() if not broker.dry_run else {"items": broker.blotter.positions()}
-        holdings_value = _money(holdings.get("marketValue") if isinstance(holdings, dict) else None)
-        if holdings_value <= 0:
-            for pos in broker.blotter.positions():
-                holdings_value += to_decimal(pos["avg_price"]) * int(pos["quantity"])
-    except Exception as exc:  # noqa: BLE001
-        log.warning("holdings for settlement failed: %s", exc)
+    available = buying_power + reserved
+    holdings_value = holdings_market_value_krw(holdings)
+    if holdings_value <= 0:
         for pos in broker.blotter.positions():
-            holdings_value += to_decimal(pos["avg_price"]) * int(pos["quantity"])
-
+            holdings_value += to_decimal(pos.get("avg_price") or 0) * int(pos["quantity"])
+    live_positions, live_marks, live_names = holdings_as_positions(holdings)
+    ladder = project_ladder(available, today, t1, t2)
+    log.info(
+        "balance snapshot buying_power=%s reserved_buys=%s available=%s stocks=%s",
+        buying_power,
+        reserved,
+        available,
+        holdings_value,
+    )
     return {
         "as_of": datetime.now(KST).strftime("%Y-%m-%d %H:%M KST"),
         "currency": "KRW",
         "buying_power": buying_power,
+        "reserved_buys": reserved,
+        "available": available,
         "holdings_value": holdings_value,
-        "nav": estimate_nav(broker),
+        "positions": live_positions,
+        "marks": live_marks,
+        "names": live_names,
+        "nav": holdings_value + available,
         "settlement": ladder,
-        "pending_settlements": pending,
+        "pending_settlements": [],
     }

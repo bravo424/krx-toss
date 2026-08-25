@@ -97,17 +97,27 @@ def push_balance_update(
     *,
     kind: str = "manual",
 ) -> None:
-    positions = broker.blotter.positions()
-    cash = broker.buying_power_krw()
-    symbols = [str(p["symbol"]) for p in positions]
-    marks = fetch_marks(broker, symbols)
-    names = fetch_names(broker, symbols)
-    nav = marked_equity(cash, positions, marks)
     settle = None
     try:
         settle = settlement_snapshot(broker.client, broker)
     except Exception as exc:  # noqa: BLE001
         log.warning("settlement snapshot failed: %s", exc)
+    live_positions = list((settle or {}).get("positions") or [])
+    positions = live_positions or broker.blotter.positions()
+    if settle is not None and settle.get("available") is not None:
+        cash = to_decimal(settle["available"])
+    else:
+        cash = broker.buying_power_krw()
+    marks = dict((settle or {}).get("marks") or {})
+    names = dict((settle or {}).get("names") or {})
+    if not marks:
+        marks = fetch_marks(broker, [str(p["symbol"]) for p in positions])
+    extra_names = fetch_names(broker, [str(p["symbol"]) for p in positions if str(p["symbol"]) not in names])
+    names.update(extra_names)
+    stocks = to_decimal((settle or {}).get("holdings_value"), default=Decimal("0")) if settle else Decimal("0")
+    if stocks <= 0:
+        stocks = marked_positions(positions, marks)
+    nav = stocks + cash
     broker.alerts.balance_update(
         cash=cash,
         nav=nav,
@@ -117,4 +127,5 @@ def push_balance_update(
         names=names,
         settlement=settle,
         kind=kind,
+        stock_value=stocks,
     )

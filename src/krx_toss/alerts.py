@@ -273,6 +273,7 @@ class TradingAlerts:
         names: dict[str, str] | None = None,
         settlement: dict[str, Any] | None = None,
         kind: str = "hourly",
+        stock_value: Decimal | None = None,
     ) -> None:
         if self.position is None:
             return
@@ -286,15 +287,21 @@ class TradingAlerts:
         now_kst = datetime.now(KST).strftime("%Y-%m-%d %H:%M KST")
         marks = marks or {}
         names = names or {}
-        stocks = _stock_mark_value(positions, marks)
-        total = cash + stocks
+        stocks = stock_value if stock_value is not None else _stock_mark_value(positions, marks)
+        if settlement and settlement.get("holdings_value") is not None and stock_value is None:
+            parsed = to_decimal(settlement.get("holdings_value"), default=Decimal("0"))
+            if parsed > 0:
+                stocks = parsed
+        ladder = (settlement or {}).get("settlement") or {}
+        available = to_decimal((ladder.get("T+2") or {}).get("cash") or cash, default=cash)
+        total = available + stocks
         header = f"📊 <b>{STRATEGY} · {title}</b>"
         summary = [
             header,
             f"🕐 {now_kst}",
             "",
             f"📈 Stocks: <b>{_krw(stocks)}</b>",
-            *_cash_ladder_lines(cash, settlement),
+            *_cash_ladder_lines(available, settlement),
             f"💰 Total: <b>{_krw(total)}</b>",
             f"Realized today: {_sgn(realized_today)} KRW",
         ]

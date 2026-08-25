@@ -181,24 +181,27 @@ def test_balance_update_splits_cash_ladder_and_stocks():
     position = RecordingAlerter()
     alerts = TradingAlerts(position=position)
     alerts.balance_update(
-        cash=Decimal("3004862"),
-        nav=Decimal("3004862"),
+        cash=Decimal("866437"),
+        nav=Decimal("3050989"),
         positions=[],
         realized_today=Decimal("0"),
+        stock_value=Decimal("2184552"),
         settlement={
+            "holdings_value": Decimal("2184552"),
             "settlement": {
-                "T": {"date": "2026-08-25", "cash": Decimal("3004862"), "inflow": Decimal("0")},
-                "T+1": {"date": "2026-08-26", "cash": Decimal("3296137"), "inflow": Decimal("291275")},
-                "T+2": {"date": "2026-08-27", "cash": Decimal("3296137"), "inflow": Decimal("0")},
-            }
+                "T": {"date": "2026-08-25", "cash": Decimal("866437"), "inflow": Decimal("0")},
+                "T+1": {"date": "2026-08-26", "cash": Decimal("866437"), "inflow": Decimal("0")},
+                "T+2": {"date": "2026-08-27", "cash": Decimal("866437"), "inflow": Decimal("0")},
+            },
         },
     )
     body = position.messages[0]
-    assert "📈 Stocks: <b>₩0</b>" in body
-    assert "T 2026-08-25: <b>₩3,004,862</b>" in body
-    assert "T+1 2026-08-26: <b>₩3,296,137</b>  (+291,275 settle)" in body
-    assert "T+2 2026-08-27: <b>₩3,296,137</b>" in body
-    assert "💰 Total: <b>₩3,004,862</b>" in body
+    assert "📈 Stocks: <b>₩2,184,552</b>" in body
+    assert "T 2026-08-25: <b>₩866,437</b>" in body
+    assert "T+1 2026-08-26: <b>₩866,437</b>" in body
+    assert "T+2 2026-08-27: <b>₩866,437</b>" in body
+    assert "+291,275" not in body
+    assert "💰 Total: <b>₩3,050,989</b>" in body
     assert "No open positions." in body
 
 
