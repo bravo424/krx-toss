@@ -65,13 +65,12 @@ def fetch_names(broker: Broker, symbols: list[str]) -> dict[str, str]:
     return names
 
 
-def marked_equity(
-    cash: Decimal,
+def marked_positions(
     positions: list[dict],
     marks: dict[str, Decimal] | None = None,
 ) -> Decimal:
-    """Avail cash plus qty × last price (falls back to avg cost if no mark)."""
-    equity = cash
+    """Qty × last price (falls back to avg cost if no mark)."""
+    value = Decimal("0")
     marks = marks or {}
     for pos in positions:
         qty = int(pos["quantity"])
@@ -79,8 +78,17 @@ def marked_equity(
         mark = marks.get(str(pos["symbol"]), cost)
         if mark <= 0:
             mark = cost
-        equity += mark * qty
-    return equity
+        value += mark * qty
+    return value
+
+
+def marked_equity(
+    cash: Decimal,
+    positions: list[dict],
+    marks: dict[str, Decimal] | None = None,
+) -> Decimal:
+    """Spendable cash plus marked stock value."""
+    return cash + marked_positions(positions, marks)
 
 
 def push_balance_update(

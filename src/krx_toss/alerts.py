@@ -44,6 +44,40 @@ def _dry_suffix(dry_run: bool) -> str:
     return "  [DRY RUN]" if dry_run else ""
 
 
+def _stock_mark_value(
+    positions: list[dict[str, Any]],
+    marks: dict[str, Decimal],
+) -> Decimal:
+    total = Decimal("0")
+    for pos in positions:
+        qty = int(pos.get("quantity") or 0)
+        if qty <= 0:
+            continue
+        cost = to_decimal(pos.get("avg_price") or 0, default=Decimal("0"))
+        mark = marks.get(str(pos.get("symbol") or ""), cost)
+        if mark <= 0:
+            mark = cost
+        total += mark * qty
+    return total
+
+
+def _cash_ladder_lines(cash: Decimal, settlement: dict[str, Any] | None) -> list[str]:
+    lines = ["💵 <b>KRW cash</b>"]
+    ladder = (settlement or {}).get("settlement") or {}
+    if not ladder:
+        lines.append(f"T: <b>{_krw(cash)}</b>")
+        return lines
+    for key in ("T", "T+1", "T+2"):
+        row = ladder.get(key) or {}
+        day = row.get("date") or ""
+        settle_cash = _krw(row.get("cash") if row.get("cash") is not None else (cash if key == "T" else 0))
+        inflow = to_decimal(row.get("inflow") or 0, default=Decimal("0"))
+        extra = f"  ({_sgn(inflow)} settle)" if inflow else ""
+        day_bit = f" {day}" if day else ""
+        lines.append(f"{key}{day_bit}: <b>{settle_cash}</b>{extra}")
+    return lines
+
+
 class TradingAlerts:
     """Two-bot split copied from the crypto workspace.
 
@@ -252,32 +286,23 @@ class TradingAlerts:
         now_kst = datetime.now(KST).strftime("%Y-%m-%d %H:%M KST")
         marks = marks or {}
         names = names or {}
-        settle_lines: list[str] = []
-        if settlement:
-            ladder = settlement.get("settlement") or {}
-            for key in ("T", "T+1", "T+2"):
-                row = ladder.get(key) or {}
-                day = row.get("date") or ""
-                settle_cash = _krw(row.get("cash") or 0)
-                inflow = to_decimal(row.get("inflow") or 0, default=Decimal("0"))
-                extra = f"  ({_sgn(inflow)} KRW settle)" if inflow else ""
-                settle_lines.append(f"{key} {day}: <b>{settle_cash}</b>{extra}")
-        balance_line = f"💰 Balance: <b>{_krw(nav)}</b>  Avail: {_krw(cash)}"
-        settle_block = ("\n".join(settle_lines) + "\n") if settle_lines else ""
+        stocks = _stock_mark_value(positions, marks)
+        total = cash + stocks
         header = f"📊 <b>{STRATEGY} · {title}</b>"
-        if not positions:
-            self.position.send(
-                f"{header}\n🕐 {now_kst}\n{balance_line}\n"
-                f"{settle_block}"
-                f"Realized today: {_sgn(realized_today)} KRW\nNo open positions."
-            )
-            return
-        lines = [
+        summary = [
             header,
             f"🕐 {now_kst}",
-            balance_line,
-            *settle_lines,
+            "",
+            f"📈 Stocks: <b>{_krw(stocks)}</b>",
+            *_cash_ladder_lines(cash, settlement),
+            f"💰 Total: <b>{_krw(total)}</b>",
             f"Realized today: {_sgn(realized_today)} KRW",
+        ]
+        if not positions:
+            self.position.send("\n".join([*summary, "", "No open positions."]))
+            return
+        lines = [
+            *summary,
             "",
         ]
         total_upnl = Decimal("0")

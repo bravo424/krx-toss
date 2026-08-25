@@ -169,9 +169,37 @@ def test_balance_update_goes_to_position_bot():
     assert len(position.messages) == 1
     body = position.messages[0]
     assert "krx-toss · hourly update" in body
-    assert "₩100,000,000" in body
+    assert "📈 Stocks: <b>₩710,000</b>" in body
+    assert "💵 <b>KRW cash</b>" in body
+    assert "T: <b>₩50,000,000</b>" in body
+    assert "💰 Total: <b>₩50,710,000</b>" in body
     assert "005930 삼성전자" in body
     assert "No open positions." not in body
+
+
+def test_balance_update_splits_cash_ladder_and_stocks():
+    position = RecordingAlerter()
+    alerts = TradingAlerts(position=position)
+    alerts.balance_update(
+        cash=Decimal("3004862"),
+        nav=Decimal("3004862"),
+        positions=[],
+        realized_today=Decimal("0"),
+        settlement={
+            "settlement": {
+                "T": {"date": "2026-08-25", "cash": Decimal("3004862"), "inflow": Decimal("0")},
+                "T+1": {"date": "2026-08-26", "cash": Decimal("3296137"), "inflow": Decimal("291275")},
+                "T+2": {"date": "2026-08-27", "cash": Decimal("3296137"), "inflow": Decimal("0")},
+            }
+        },
+    )
+    body = position.messages[0]
+    assert "📈 Stocks: <b>₩0</b>" in body
+    assert "T 2026-08-25: <b>₩3,004,862</b>" in body
+    assert "T+1 2026-08-26: <b>₩3,296,137</b>  (+291,275 settle)" in body
+    assert "T+2 2026-08-27: <b>₩3,296,137</b>" in body
+    assert "💰 Total: <b>₩3,004,862</b>" in body
+    assert "No open positions." in body
 
 
 def test_marked_equity_uses_last_price_not_cost():
