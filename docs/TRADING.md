@@ -265,7 +265,7 @@ Holidays use Toss `GET` calendar; if that call fails, weekdays are treated as op
 | `data/blotter.sqlite` | Orders, fills, positions. |
 | `data/kill_switch.json` | Present when the kill switch is tripped. |
 
-If the kill switch trips (daily loss, or you trip it by writing that file), new orders stop until you delete `data/kill_switch.json` or otherwise reset it. Check `krx-toss status` first.
+If the kill switch trips on daily loss, new buys are blocked for the rest of that KST session and automatically allowed again the next trading day. Check `krx-toss status`. Delete `data/kill_switch.json` to unlock the same day.
 
 ## Typical config edits
 

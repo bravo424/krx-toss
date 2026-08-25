@@ -117,6 +117,15 @@ def scan_signals(
     persist: bool = False,
 ) -> dict[str, Any]:
     params = settings.strategy_section("signal")
+    log.info(
+        "scan params flow_n=%s both_flows=%s min_20d=%s max_3d=%s kospi_skip=%s reversal_always=%s",
+        params.get("flow_lookback_sessions"),
+        params.get("require_both_flows"),
+        params.get("min_20d_return"),
+        params.get("max_3d_return"),
+        params.get("kospi_skip_1d_return"),
+        params.get("reversal_always"),
+    )
     kospi = parse_candles(client.get_indicator_candles("KOSPI", interval="1d", count=30))
     skip = Decimal(str(params.get("kospi_skip_1d_return", "-0.02")))
     if index_blocks_entries(kospi, skip):

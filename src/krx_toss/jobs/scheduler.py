@@ -103,11 +103,14 @@ def run_scheduler(client: TossClient, broker: Broker, settings: Settings, *, onc
                 except Exception as exc:  # noqa: BLE001
                     log.exception("scan failed: %s", exc)
             if open_today and clock >= entry_at and clock.hour < 15 and last_entry_date != now.date():
-                try:
-                    place_entries(client, broker, settings, now=now)
-                    last_entry_date = now.date()
-                except Exception as exc:  # noqa: BLE001
-                    log.exception("entries failed: %s", exc)
+                if broker.kill_switch.tripped():
+                    log.warning("kill switch tripped; skip entries (will retry this session after reset)")
+                else:
+                    try:
+                        place_entries(client, broker, settings, now=now)
+                        last_entry_date = now.date()
+                    except Exception as exc:  # noqa: BLE001
+                        log.exception("entries failed: %s", exc)
             if open_today and entry_at <= clock and (now.hour < 15 or (now.hour == 15 and now.minute < 30)):
                 if time.time() - last_overlay >= settings.overlay_seconds:
                     try:
