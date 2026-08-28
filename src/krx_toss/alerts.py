@@ -251,6 +251,16 @@ class TradingAlerts:
             f"🛑 <b>{STRATEGY}</b> kill switch tripped\n{_esc(reason)}\nNo new entries until reset."
         )
 
+    def scheduler_stalled(self, *, gap_seconds: float) -> None:
+        if self.trade is None:
+            return
+        minutes = max(1, round(gap_seconds / 60))
+        self.trade.send(
+            f"⚠️ <b>{STRATEGY} stalled</b>\n"
+            f"No ticks for {minutes} min. Windows likely slept.\n"
+            f"Keep the laptop plugged in; set Sleep to Never while trading."
+        )
+
     def crashed(self, error: BaseException) -> None:
         text = (
             f"🔴 <b>{STRATEGY} CRASHED</b>\n"

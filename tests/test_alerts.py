@@ -265,6 +265,16 @@ def test_market_open_and_close_go_to_trade_bot():
     assert any("market closed" in m for m in trade.messages)
 
 
+def test_scheduler_stalled_goes_to_trade_bot():
+    trade = RecordingAlerter()
+    position = RecordingAlerter()
+    alerts = TradingAlerts(trade=trade, position=position)
+    alerts.scheduler_stalled(gap_seconds=6360)
+    assert position.messages == []
+    assert "stalled" in trade.messages[0]
+    assert "106 min" in trade.messages[0]
+
+
 def test_crash_goes_to_both_bots():
     trade = RecordingAlerter()
     position = RecordingAlerter()

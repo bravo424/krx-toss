@@ -256,6 +256,8 @@ Pass `--root C:\path\to\krx-toss-trading` if you invoke the CLI from another dir
 
 Holidays use Toss `GET` calendar; if that call fails, weekdays are treated as open.
 
+The scheduler asks Windows not to idle-sleep, and Telegram-warns if a tick is missed for ~90s. Lid-close and Hibernate can still freeze the process: keep the laptop plugged in, set Sleep to Never, and set “When I close the lid” to Do nothing while `krx-toss run` is live. Quiet logs do not mean paused — ticks with nothing to do used to log nothing; the loop now heartbeats every 5 minutes.
+
 ## Day-to-day files
 
 | Path | What you look at |

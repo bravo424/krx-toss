@@ -15,11 +15,21 @@ from krx_toss.jobs.open_entry import place_entries
 from krx_toss.jobs.order_sync import sync_fills
 from krx_toss.jobs.overlay_job import run_overlay
 from krx_toss.jobs.telegram_job import next_balance_kind, push_balance_update
+from krx_toss.keep_awake import KeepAwake
 from krx_toss.strategy.risk import parse_hhmm
 from krx_toss.toss.client import TossClient
 
 log = logging.getLogger(__name__)
 KST = ZoneInfo("Asia/Seoul")
+HEARTBEAT_SECONDS = 300
+STALL_SECONDS = 90
+
+
+def loop_stall_seconds(last_wall: float, now_wall: float, *, threshold: float = STALL_SECONDS) -> float | None:
+    if last_wall <= 0:
+        return None
+    gap = now_wall - last_wall
+    return gap if gap >= threshold else None
 
 
 def run_scheduler(client: TossClient, broker: Broker, settings: Settings, *, once: bool = False) -> None:
@@ -34,99 +44,125 @@ def run_scheduler(client: TossClient, broker: Broker, settings: Settings, *, onc
     last_order_sync = 0.0
     last_hourly_balance = 0.0
     last_overlay = 0.0
+    last_heartbeat = 0.0
+    last_loop_wall = 0.0
     cal: dict = {}
     cal_date = None
     try:
         broker.alerts.started(dry_run=broker.dry_run)
     except Exception as exc:  # noqa: BLE001
         log.warning("startup telegram failed: %s", exc)
-    while True:
-        try:
-            now = datetime.now(KST)
-            if cal_date != now.date():
+    with KeepAwake() as awake:
+        while True:
+            awake.ping()
+            now_wall = time.time()
+            stalled = loop_stall_seconds(last_loop_wall, now_wall)
+            if stalled is not None:
+                log.warning(
+                    "scheduler resumed after %.0fs gap; Windows likely slept — overlay/fills were frozen",
+                    stalled,
+                )
                 try:
-                    cal = client.get_kr_calendar()
-                    cal_date = now.date()
+                    broker.alerts.scheduler_stalled(gap_seconds=stalled)
                 except Exception as exc:  # noqa: BLE001
-                    log.warning("calendar fetch failed: %s", exc)
-                    cal = {}
-                    cal_date = now.date()
+                    log.warning("stall telegram failed: %s", exc)
+            last_loop_wall = now_wall
             try:
-                open_today = calendar_is_open(cal, now) if cal else now.weekday() < 5
-            except Exception as exc:  # noqa: BLE001
-                log.warning("calendar parse failed: %s", exc)
-                open_today = now.weekday() < 5
-            clock = now.time().replace(tzinfo=None)
-            try:
-                session_start, session_end = regular_session_times(cal)
-            except Exception as exc:  # noqa: BLE001
-                log.warning("session times failed: %s", exc)
-                session_start, session_end = "09:00", "15:30"
+                now = datetime.now(KST)
+                if cal_date != now.date():
+                    try:
+                        cal = client.get_kr_calendar()
+                        cal_date = now.date()
+                    except Exception as exc:  # noqa: BLE001
+                        log.warning("calendar fetch failed: %s", exc)
+                        cal = {}
+                        cal_date = now.date()
+                try:
+                    open_today = calendar_is_open(cal, now) if cal else now.weekday() < 5
+                except Exception as exc:  # noqa: BLE001
+                    log.warning("calendar parse failed: %s", exc)
+                    open_today = now.weekday() < 5
+                clock = now.time().replace(tzinfo=None)
+                try:
+                    session_start, session_end = regular_session_times(cal)
+                except Exception as exc:  # noqa: BLE001
+                    log.warning("session times failed: %s", exc)
+                    session_start, session_end = "09:00", "15:30"
 
-            if time.time() - last_order_sync >= settings.order_status_seconds:
-                try:
-                    sync_fills(broker)
-                except Exception as exc:  # noqa: BLE001
-                    log.warning("fill sync failed: %s", exc)
-                last_order_sync = time.time()
-            kind = next_balance_kind(
-                open_today=open_today,
-                clock=clock,
-                session_start=session_start,
-                session_end=session_end,
-                open_sent=last_open_balance_date == now.date(),
-                close_sent=last_close_balance_date == now.date(),
-                hourly_due=last_hourly_balance > 0
-                and (time.time() - last_hourly_balance) >= settings.balance_update_seconds,
-            )
-            if kind:
-                try:
+                if now_wall - last_heartbeat >= HEARTBEAT_SECONDS:
+                    log.info(
+                        "scheduler heartbeat open=%s session=%s-%s kst=%s",
+                        open_today,
+                        session_start,
+                        session_end,
+                        now.strftime("%H:%M"),
+                    )
+                    last_heartbeat = now_wall
+
+                if time.time() - last_order_sync >= settings.order_status_seconds:
+                    try:
+                        sync_fills(broker)
+                    except Exception as exc:  # noqa: BLE001
+                        log.warning("fill sync failed: %s", exc)
+                    last_order_sync = time.time()
+                kind = next_balance_kind(
+                    open_today=open_today,
+                    clock=clock,
+                    session_start=session_start,
+                    session_end=session_end,
+                    open_sent=last_open_balance_date == now.date(),
+                    close_sent=last_close_balance_date == now.date(),
+                    hourly_due=last_hourly_balance > 0
+                    and (time.time() - last_hourly_balance) >= settings.balance_update_seconds,
+                )
+                if kind:
+                    try:
+                        if kind == "open":
+                            broker.alerts.market_open(start=session_start, end=session_end, dry_run=broker.dry_run)
+                        elif kind == "close":
+                            broker.alerts.market_close(start=session_start, end=session_end, dry_run=broker.dry_run)
+                        push_balance_update(broker, settings, kind=kind)
+                    except Exception as exc:  # noqa: BLE001
+                        log.warning("session telegram failed: %s", exc)
                     if kind == "open":
-                        broker.alerts.market_open(start=session_start, end=session_end, dry_run=broker.dry_run)
+                        last_open_balance_date = now.date()
+                        last_hourly_balance = time.time()
+                    elif kind == "hourly":
+                        last_hourly_balance = time.time()
                     elif kind == "close":
-                        broker.alerts.market_close(start=session_start, end=session_end, dry_run=broker.dry_run)
-                    push_balance_update(broker, settings, kind=kind)
-                except Exception as exc:  # noqa: BLE001
-                    log.warning("session telegram failed: %s", exc)
-                if kind == "open":
-                    last_open_balance_date = now.date()
-                    last_hourly_balance = time.time()
-                elif kind == "hourly":
-                    last_hourly_balance = time.time()
-                elif kind == "close":
-                    last_close_balance_date = now.date()
+                        last_close_balance_date = now.date()
 
-            if open_today and now.hour >= 15 and now.minute >= 45 and last_scan_date != now.date():
-                try:
-                    scan_signals(client, settings, cache, alerts=broker.alerts, source="run")
-                    last_scan_date = now.date()
-                except Exception as exc:  # noqa: BLE001
-                    log.exception("scan failed: %s", exc)
-            if open_today and clock >= entry_at and clock.hour < 15 and last_entry_date != now.date():
-                if broker.kill_switch.tripped():
-                    log.warning("kill switch tripped; skip entries (will retry this session after reset)")
-                else:
+                if open_today and now.hour >= 15 and now.minute >= 45 and last_scan_date != now.date():
                     try:
-                        place_entries(client, broker, settings, now=now)
-                        last_entry_date = now.date()
+                        scan_signals(client, settings, cache, alerts=broker.alerts, source="run")
+                        last_scan_date = now.date()
                     except Exception as exc:  # noqa: BLE001
-                        log.exception("entries failed: %s", exc)
-            if open_today and entry_at <= clock and (now.hour < 15 or (now.hour == 15 and now.minute < 30)):
-                if time.time() - last_overlay >= settings.overlay_seconds:
+                        log.exception("scan failed: %s", exc)
+                if open_today and clock >= entry_at and clock.hour < 15 and last_entry_date != now.date():
+                    if broker.kill_switch.tripped():
+                        log.warning("kill switch tripped; skip entries (will retry this session after reset)")
+                    else:
+                        try:
+                            place_entries(client, broker, settings, now=now)
+                            last_entry_date = now.date()
+                        except Exception as exc:  # noqa: BLE001
+                            log.exception("entries failed: %s", exc)
+                if open_today and entry_at <= clock and (now.hour < 15 or (now.hour == 15 and now.minute < 30)):
+                    if time.time() - last_overlay >= settings.overlay_seconds:
+                        try:
+                            run_overlay(client, broker, settings)
+                        except Exception as exc:  # noqa: BLE001
+                            log.exception("overlay failed: %s", exc)
+                        last_overlay = time.time()
+                if open_today and now.hour >= 15 and now.minute >= 35 and last_eod_date != now.date():
                     try:
-                        run_overlay(client, broker, settings)
+                        run_eod(client, broker, settings)
+                        last_eod_date = now.date()
                     except Exception as exc:  # noqa: BLE001
-                        log.exception("overlay failed: %s", exc)
-                    last_overlay = time.time()
-            if open_today and now.hour >= 15 and now.minute >= 35 and last_eod_date != now.date():
-                try:
-                    run_eod(client, broker, settings)
-                    last_eod_date = now.date()
-                except Exception as exc:  # noqa: BLE001
-                    log.exception("eod failed: %s", exc)
-        except Exception as exc:  # noqa: BLE001
-            log.exception("scheduler tick failed: %s", exc)
+                        log.exception("eod failed: %s", exc)
+            except Exception as exc:  # noqa: BLE001
+                log.exception("scheduler tick failed: %s", exc)
 
-        if once:
-            return
-        time.sleep(max(1, min(settings.overlay_seconds, settings.order_status_seconds)))
+            if once:
+                return
+            time.sleep(max(1, min(settings.overlay_seconds, settings.order_status_seconds)))
