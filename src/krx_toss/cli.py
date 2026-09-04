@@ -8,6 +8,7 @@ from decimal import Decimal
 from pathlib import Path
 
 from krx_toss.agents.orchestrator import run_agents
+from krx_toss.agents.research_sweep import DEFAULT_NAV, run_research_sweep, write_research_result
 from krx_toss.backtest.cache import MarketCache
 from krx_toss.backtest.engine import SymbolHistory, run_backtest
 from krx_toss.config import Settings, load_settings
@@ -138,6 +139,17 @@ def cmd_balance(settings: Settings) -> int:
     client, broker = _session(settings, dry_run=False)
     snap = settlement_snapshot(client, broker)
     print(json.dumps(snap, indent=2, default=str))
+    return 0
+
+
+def cmd_research_sweep(settings: Settings, nav: Decimal) -> int:
+    result = run_research_sweep(settings, nav=nav)
+    write_research_result(settings, result)
+    print(json.dumps(result, indent=2, default=str))
+    if result.get("status") == "candidate":
+        return 0
+    if result.get("status") == "blocked":
+        return 1
     return 0
 
 
@@ -273,6 +285,8 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--once", action="store_true")
     bt = sub.add_parser("backtest", help="Replay cached daily bars with tax and fees")
     bt.add_argument("--nav", default="100000000")
+    rs = sub.add_parser("research-sweep", help="Sweep strategy.yaml params from PNL brief (backtest gate)")
+    rs.add_argument("--nav", default=str(DEFAULT_NAV))
     sub.add_parser("fetch-cache", help="Pull rankings/candles/flow into parquet")
     sub.add_parser("status", help="Show kill switch and blotter")
     sub.add_parser("balance", help="Show KRW cash on T / T+1 / T+2 settlement dates")
@@ -319,6 +333,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_run(settings, args.once)
     if args.cmd == "backtest":
         return cmd_backtest(settings, to_decimal(args.nav))
+    if args.cmd == "research-sweep":
+        return cmd_research_sweep(settings, to_decimal(args.nav))
     if args.cmd == "fetch-cache":
         return cmd_fetch_cache(settings)
     if args.cmd == "status":

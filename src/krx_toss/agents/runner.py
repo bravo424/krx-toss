@@ -4,11 +4,16 @@ import logging
 import os
 import shutil
 import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 log = logging.getLogger(__name__)
+
+# cursor-sdk reads bridge discovery via selectors.DefaultSelector on a pipe fd.
+# On Windows that raises WinError 10038 (pipe handles are not sockets).
+_SDK_BROKEN_ON_WINDOWS = sys.platform == "win32"
 
 
 @dataclass
@@ -26,6 +31,16 @@ class AgentRunResult:
 def _cursor_api_key() -> str | None:
     key = (os.environ.get("CURSOR_API_KEY") or "").strip()
     return key or None
+
+
+def auto_backends() -> list[str]:
+    """Backend order for `--prefer auto`.
+
+    Windows: skip cursor-sdk (pipe/select bug) and use the `agent` CLI instead.
+    """
+    if _SDK_BROKEN_ON_WINDOWS:
+        return ["cli", "file"]
+    return ["sdk", "cli", "file"]
 
 
 def run_via_sdk(prompt: str, *, cwd: Path, model: str = "composer-2.5") -> AgentRunResult:
@@ -48,6 +63,15 @@ def run_via_sdk(prompt: str, *, cwd: Path, model: str = "composer-2.5") -> Agent
         )
     except CursorAgentError as exc:
         return AgentRunResult("?", "error", f"startup failed: {exc}", "sdk")
+    except OSError as exc:
+        if _SDK_BROKEN_ON_WINDOWS and getattr(exc, "winerror", None) == 10038:
+            return AgentRunResult(
+                "?",
+                "error",
+                "cursor-sdk bridge broken on Windows (WinError 10038); use --prefer cli",
+                "sdk",
+            )
+        return AgentRunResult("?", "error", f"sdk exception: {exc}", "sdk")
     except Exception as exc:  # noqa: BLE001
         return AgentRunResult("?", "error", f"sdk exception: {exc}", "sdk")
 
@@ -62,8 +86,19 @@ def run_via_agent_cli(prompt: str, *, cwd: Path) -> AgentRunResult:
     exe = shutil.which("agent") or shutil.which("cursor")
     if not exe:
         return AgentRunResult("?", "error", "neither `agent` nor `cursor` CLI found on PATH", "cli")
-    # Prefer `agent` chat-style non-interactive if available; otherwise write prompt only.
-    cmd = [exe, "-p", prompt] if Path(exe).name.lower().startswith("agent") else None
+    # Prefer `agent` print mode for non-interactive runs; --trust/--force avoid prompts.
+    if Path(exe).name.lower().startswith("agent"):
+        cmd = [
+            exe,
+            "-p",
+            prompt,
+            "--trust",
+            "--force",
+            "--workspace",
+            str(cwd.resolve()),
+        ]
+    else:
+        cmd = None
     if cmd is None:
         return AgentRunResult("?", "error", "cursor CLI present but no non-interactive agent invoke; use SDK", "cli")
     try:
@@ -101,11 +136,7 @@ def invoke_agent(
     prefer: auto | sdk | cli | file
     auto tries SDK → CLI → write prompt file for manual/IDE run.
     """
-    backends = []
-    if prefer == "auto":
-        backends = ["sdk", "cli", "file"]
-    else:
-        backends = [prefer]
+    backends = auto_backends() if prefer == "auto" else [prefer]
 
     last = AgentRunResult(role, "error", "no backend", "none")
     for backend in backends:

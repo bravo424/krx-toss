@@ -60,3 +60,40 @@ See [Toss overview](https://openapi.tossinvest.com/openapi-docs/overview.md). Th
 ```powershell
 pytest
 ```
+
+
+
+  Four agents are in place, with a safer pipeline than “researcher edits live code 24/7.”
+
+  What was created
+
+  ┌─────────────────────┬─────────────────────────────────────┬──────────────────────────────────────────────────────────────────────┐
+  │ Agent               │ Skill                               │ Role                                                                 │
+  ├─────────────────────┼─────────────────────────────────────┼──────────────────────────────────────────────────────────────────────┤
+  │ PNL analysis        │ .cursor/skills/pnl-analysis/        │ After 15:30 KST, writes data/agents/pnl_brief.json + queues research │
+  ├─────────────────────┼─────────────────────────────────────┼──────────────────────────────────────────────────────────────────────┤
+  │ Strategy researcher │ .cursor/skills/strategy-researcher/ │ Searches alpha, prefers strategy.yaml, queues QA + Telegram          │
+  ├─────────────────────┼─────────────────────────────────────┼──────────────────────────────────────────────────────────────────────┤
+  │ QA                  │ .cursor/skills/qa-agent/            │ pytest/backtest gate, bugfix in-scope, approve/reject                │
+  ├─────────────────────┼─────────────────────────────────────┼──────────────────────────────────────────────────────────────────────┤
+  │ Trading agent       │ .cursor/skills/trading-agent/       │ Supervisor; never auto-flips dry_run                                 │
+  └─────────────────────┴─────────────────────────────────────┴──────────────────────────────────────────────────────────────────────┘
+
+  Orchestrator: krx-toss agents (src/krx_toss/agents/).
+
+  Better design (baked in)
+
+  1. Config before code — most “alpha” should be strategy.yaml sweeps, not random Python rewrites.
+  2. No continuous 24h LLM burn — queue-driven after PNL + overnight cycles (not empty loops).
+  3. Backtest gate + cost awareness — edge must clear ~0.20% sell tax + fees.
+  4. No auto-live — QA approved still needs human ack; kill switch / creds / dry_run are forbidden.
+  5. Separate from krx-toss run — trading loop stays fast; agents won’t block overlay/fills.
+
+  How to run
+
+  # Deterministic brief + handoffs (no Cursor API needed)
+  krx-toss agents --once --no-llm --role pnl
+  # Full supervisor (Cursor SDK)
+  pip install -e ".[agents]"
+  $env:CURSOR_API_KEY="cursor_..."
+  krx-toss agents --once

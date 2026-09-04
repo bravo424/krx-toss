@@ -7,6 +7,7 @@ from zoneinfo import ZoneInfo
 
 from krx_toss.agents.handoff import enqueue_qa, enqueue_research, is_pending, path_is_forbidden, read_json
 from krx_toss.agents.pnl_brief import build_pnl_brief, brief_markdown, should_run_pnl_today, write_pnl_brief
+from krx_toss.agents.runner import auto_backends
 from krx_toss.config import load_settings
 from krx_toss.execution.blotter import Blotter
 
@@ -65,3 +66,15 @@ def test_enqueue_qa(tmp_path: Path) -> None:
     assert data["candidate_id"] == "alpha-1"
     research = enqueue_research(tmp_path, reason="test", brief_path="data/agents/pnl_brief.json")
     assert is_pending(research)
+
+
+def test_auto_backends_skips_sdk_on_windows(monkeypatch) -> None:
+    monkeypatch.setattr("krx_toss.agents.runner.sys.platform", "win32")
+    monkeypatch.setattr("krx_toss.agents.runner._SDK_BROKEN_ON_WINDOWS", True)
+    assert auto_backends() == ["cli", "file"]
+
+
+def test_auto_backends_uses_sdk_elsewhere(monkeypatch) -> None:
+    monkeypatch.setattr("krx_toss.agents.runner.sys.platform", "linux")
+    monkeypatch.setattr("krx_toss.agents.runner._SDK_BROKEN_ON_WINDOWS", False)
+    assert auto_backends() == ["sdk", "cli", "file"]
