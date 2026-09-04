@@ -26,8 +26,15 @@ logs/
 # IDE
 .idea/
 .vscode/
-.cursor/
+.cursor/*
+!.cursor/rules/
+!.cursor/rules/**
+!.cursor/skills/
+!.cursor/skills/**
 *.code-workspace
+
+# Agent runtime handoffs (regenerated)
+data/agents/
 
 # OS
 Thumbs.db

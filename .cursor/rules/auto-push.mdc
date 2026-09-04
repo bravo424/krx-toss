@@ -1,0 +1,13 @@
+---
+description: Commit and push every code change without asking
+alwaysApply: true
+---
+
+# Auto commit and push
+
+After making project changes, commit them and `git push` to the tracked remote. Do not ask for approval first.
+
+- Include relevant untracked source files; never commit secrets (`.env`, tokens, live `config/settings.yaml`, `config/strategy.yaml`, credential files).
+- Use a concise 1–2 sentence commit message focused on why.
+- Do not force-push, skip hooks, amend published commits, or change git config.
+- If there is nothing to commit, skip the commit; still push if the branch is ahead of origin.

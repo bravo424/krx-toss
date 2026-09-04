@@ -7,6 +7,7 @@ import sys
 from decimal import Decimal
 from pathlib import Path
 
+from krx_toss.agents.orchestrator import run_agents
 from krx_toss.backtest.cache import MarketCache
 from krx_toss.backtest.engine import SymbolHistory, run_backtest
 from krx_toss.config import Settings, load_settings
@@ -221,6 +222,43 @@ def cmd_status(settings: Settings) -> int:
     return 0
 
 
+def cmd_agents(
+    settings: Settings,
+    *,
+    once: bool,
+    prefer: str,
+    role: str | None,
+    no_llm: bool,
+) -> int:
+    client, broker = _session(settings)
+    try:
+        if role:
+            from krx_toss.agents.orchestrator import run_agents_once
+
+            outcomes = run_agents_once(
+                settings,
+                client=client,
+                broker=broker,
+                prefer=prefer,
+                force_role=role,
+                invoke_llm=not no_llm,
+            )
+            print(json.dumps(outcomes, indent=2))
+            return 0
+        run_agents(
+            settings,
+            client=client,
+            broker=broker,
+            once=once,
+            prefer=prefer,
+            invoke_llm=not no_llm,
+        )
+    except KeyboardInterrupt:
+        log.info("agents supervisor stopped")
+        return 0
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="krx-toss", description="KRX MFT/LFT platform on Toss Open API")
     parser.add_argument("--root", type=Path, default=None, help="Project root (default: package parent)")
@@ -239,6 +277,25 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("status", help="Show kill switch and blotter")
     sub.add_parser("balance", help="Show KRW cash on T / T+1 / T+2 settlement dates")
     sub.add_parser("alert", help="Send a Telegram balance / holdings snapshot now")
+    agents = sub.add_parser("agents", help="Run PNL / research / QA / trading supervisor agents")
+    agents.add_argument("--once", action="store_true", help="Single supervisor pass then exit")
+    agents.add_argument(
+        "--prefer",
+        choices=("auto", "sdk", "cli", "file"),
+        default="auto",
+        help="How to invoke Cursor agents (auto: sdk -> cli -> prompt file)",
+    )
+    agents.add_argument(
+        "--role",
+        choices=("pnl", "research", "qa", "trading"),
+        default=None,
+        help="Force a single agent role this pass",
+    )
+    agents.add_argument(
+        "--no-llm",
+        action="store_true",
+        help="Deterministic handoffs only (PNL brief / queue); write prompts for manual Cursor runs",
+    )
     return parser
 
 
@@ -270,5 +327,13 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_balance(settings)
     if args.cmd == "alert":
         return cmd_alert(settings)
+    if args.cmd == "agents":
+        return cmd_agents(
+            settings,
+            once=args.once,
+            prefer=args.prefer,
+            role=args.role,
+            no_llm=args.no_llm,
+        )
     parser.error(f"unknown command {args.cmd}")
     return 2

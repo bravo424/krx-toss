@@ -272,6 +272,11 @@ class TradingAlerts:
         if self.position is not None and self.position is not self.trade:
             self.position.send(text)
 
+    def agent_event(self, text: str) -> None:
+        if self.trade is None:
+            return
+        self.trade.send(text)
+
     def balance_update(
         self,
         *,

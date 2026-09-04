@@ -43,6 +43,8 @@ krx-toss backtest --nav 100000000
 krx-toss status
 krx-toss run --once    # one scheduler pass
 krx-toss live --i-understand-the-risk   # real orders; also set dry_run: false
+krx-toss agents --once --no-llm   # post-close PNL brief + agent handoffs (no Cursor SDK)
+krx-toss agents --once            # supervisor pass (needs CURSOR_API_KEY + pip install -e ".[agents]")
 ```
 
 Live trading requires **both** `dry_run: false` and `--i-understand-the-risk`.
