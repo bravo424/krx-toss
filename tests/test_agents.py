@@ -7,7 +7,8 @@ from zoneinfo import ZoneInfo
 
 from krx_toss.agents.handoff import enqueue_qa, enqueue_research, is_pending, path_is_forbidden, read_json
 from krx_toss.agents.pnl_brief import build_pnl_brief, brief_markdown, should_run_pnl_today, write_pnl_brief
-from krx_toss.agents.runner import auto_backends
+from krx_toss.agents.alerts_text import agent_commenced, agent_completed, tick_summary
+from krx_toss.agents.runner import AgentRunResult, auto_backends
 from krx_toss.config import load_settings
 from krx_toss.execution.blotter import Blotter
 
@@ -78,3 +79,18 @@ def test_auto_backends_uses_sdk_elsewhere(monkeypatch) -> None:
     monkeypatch.setattr("krx_toss.agents.runner.sys.platform", "linux")
     monkeypatch.setattr("krx_toss.agents.runner._SDK_BROKEN_ON_WINDOWS", False)
     assert auto_backends() == ["sdk", "cli", "file"]
+
+
+def test_agent_alert_text() -> None:
+    commenced = agent_commenced("strategy-researcher", backend="cli")
+    assert "started" in commenced
+    assert "strategy-researcher" in commenced
+    done = agent_completed(
+        "qa",
+        AgentRunResult("qa", "finished", "ok", "cli"),
+        git={"status": "pushed", "commit": "abc1234", "detail": "2 file(s)"},
+    )
+    assert "finished" in done
+    assert "abc1234" in done
+    assert tick_summary({"qa": "finished"}) != ""
+    assert tick_summary({"idle": "ok"}) == ""

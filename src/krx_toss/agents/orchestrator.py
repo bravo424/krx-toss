@@ -12,6 +12,8 @@ from krx_toss.agents.handoff import (
     queue_path,
     read_json,
 )
+from krx_toss.agents.alerts_text import agent_commenced, agent_completed, tick_summary
+from krx_toss.agents.git_publish import publish_agent_changes
 from krx_toss.agents.pnl_brief import build_pnl_brief, should_run_pnl_today, write_pnl_brief
 from krx_toss.agents.prompts import pnl_prompt, qa_prompt, research_prompt, trading_prompt
 from krx_toss.agents.runner import alpha_alert_text, invoke_agent
@@ -80,8 +82,23 @@ def run_agents_once(
             out.write_text(prompt + "\n", encoding="utf-8")
             append_run_log(root, {"role": role, "status": "written", "backend": "file"})
             return "written"
+
+        backend_hint = "cli" if prefer in ("auto", "cli") else prefer
+        _send_trade_alert(alerts, agent_commenced(role, backend=backend_hint))
         result = invoke_agent(role, prompt, cwd=root, prefer=prefer)
-        append_run_log(root, {"role": role, "status": result.status, "backend": result.backend, "detail": result.detail[:500]})
+        append_run_log(
+            root,
+            {
+                "role": role,
+                "status": result.status,
+                "backend": result.backend,
+                "detail": result.detail[:500],
+            },
+        )
+        git_result: dict[str, str] | None = None
+        if result.ok:
+            git_result = publish_agent_changes(root, role=role, summary=result.detail[:500])
+        _send_trade_alert(alerts, agent_completed(role, result, git=git_result))
         return result.status
 
     # --- PNL analysis ---
@@ -145,6 +162,10 @@ def run_agents_once(
 
     if not results:
         results["idle"] = "ok"
+    else:
+        summary = tick_summary(results)
+        if summary:
+            _send_trade_alert(alerts, summary)
     return results
 
 
@@ -176,5 +197,6 @@ def run_agents(
             log.exception("agents tick failed: %s", exc)
             _send_trade_alert(alerts, f"🔴 <b>krx-toss agents</b> tick failed\n<code>{exc}</code>")
         if once:
+            _send_trade_alert(alerts, f"⏹️ <b>krx-toss agents</b> supervisor finished\n🕐 one pass complete")
             return
         time.sleep(max(5, sleep_seconds))
