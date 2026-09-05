@@ -148,7 +148,12 @@ def run_agents_once(
     # --- Trading supervisor glance ---
     if force_role in (None, "trading"):
         promote = read_json(queue_path(root, "promote_request.json"))
-        if promote and promote.get("status") == "approved" and promote.get("requires_human_ack", True):
+        promote_needs_ack = bool(
+            promote
+            and promote.get("status") == "approved"
+            and promote.get("requires_human_ack", True)
+        )
+        if promote_needs_ack:
             _send_trade_alert(
                 alerts,
                 (
@@ -157,7 +162,10 @@ def run_agents_once(
                     "Human ack required before paper/live apply. dry_run will NOT be flipped automatically."
                 ),
             )
-        if force_role == "trading" or invoke_llm:
+        # Skip empty LLM ticks (weekend / idle): only when forced, promote needs
+        # human ack, or PNL/research/QA already ran this pass.
+        need_trading = force_role == "trading" or promote_needs_ack or bool(results)
+        if need_trading and (force_role == "trading" or invoke_llm):
             results["trading-agent"] = _run("trading-agent", trading_prompt(root=root))
 
     if not results:
